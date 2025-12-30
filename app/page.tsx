@@ -151,9 +151,7 @@ export default function Home() {
                     />
                   ))}
                 </div>
-                <p className="text-xs text-slate-500">
-                  Accepts note names like C, Eb, F#, or with octave C3.
-                </p>
+                <p className="text-xs text-slate-500">Accepts note names like C, Eb, F#.</p>
               </div>
             )}
 
@@ -297,6 +295,7 @@ function Fretboard({
   const BOARD_WIDTH_PX = 1200;
   const ROW_HEIGHT_PX = 44;
   const INLAY_FRETS = [3, 5, 7, 9, 12, 15, 17, 19, 21, 24];
+  const totalHeight = strings.length * ROW_HEIGHT_PX;
 
   function fretToXPercent(fret: number) {
     // Guitar fret spacing is logarithmic: position from nut is 1 - 2^(-f/12).
@@ -305,6 +304,8 @@ function Fretboard({
     const pos = 1 - Math.pow(2, -fret / 12);
     return (pos / denom) * 100;
   }
+
+  const displayStrings = useMemo(() => [...strings].reverse(), [strings]);
 
   return (
     <div className="space-y-3">
@@ -318,94 +319,115 @@ function Fretboard({
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-50">
         <div className="min-w-fit">
-          {strings.map((string, idx) => (
-            <div
-              key={string.label + idx}
-              className="relative flex border-b border-slate-200 last:border-b-0"
-              style={{ height: ROW_HEIGHT_PX }}
-            >
-              <div className="sticky left-0 z-20 flex w-28 items-center justify-end border-r border-slate-200 bg-white/90 pr-3 text-xs font-semibold text-slate-700 backdrop-blur">
-                {idx + 1} ({string.label})
-              </div>
-
-              <div
-                className="relative"
-                style={{
-                  width: BOARD_WIDTH_PX,
-                  background: "linear-gradient(180deg, rgba(180,83,9,0.10), rgba(2,6,23,0.02))",
-                }}
-              >
-                {/* String line */}
-                <div
-                  className="absolute left-0 top-1/2 w-full -translate-y-1/2 bg-slate-700/70"
-                  style={{
-                    height: Math.max(1, Math.round(3.25 - idx * 0.35)),
-                  }}
-                />
-
-                {/* Frets (including nut) */}
-                {fretMarkers.map((fret) => {
-                  const left = fretToXPercent(fret);
-                  const isNut = fret === 0;
-                  return (
-                    <div
-                      key={`fret-${idx}-${fret}`}
-                      className="absolute top-0 h-full"
-                      style={{ left: `${left}%` }}
-                    >
-                      <div
-                        className={`h-full ${isNut ? "w-[4px] bg-slate-600/70" : "w-px bg-slate-300"}`}
-                      />
-                    </div>
-                  );
-                })}
-
-                {/* Inlay dots (placed in the fret space for the target fret number) */}
-                {INLAY_FRETS.map((fretNumber) => {
-                  const left = fretToXPercent(fretNumber - 0.5);
-                  const isDouble = fretNumber === 12 || fretNumber === 24;
-                  return (
-                    <div
-                      key={`inlay-${idx}-${fretNumber}`}
-                      className="absolute top-1/2 -translate-y-1/2"
-                      style={{ left: `${left}%` }}
-                    >
-                      <div className="flex items-center justify-center gap-2 opacity-40">
-                        <span className="h-2.5 w-2.5 rounded-full bg-slate-200 shadow-sm" />
-                        {isDouble && <span className="h-2.5 w-2.5 rounded-full bg-slate-200 shadow-sm" />}
-                      </div>
-                    </div>
-                  );
-                })}
-
-                {/* Harmonic markers */}
-                {visible
-                  .filter((h) => h.stringIndex === idx)
-                  .map((h) => (
-                    <div
-                      key={`${h.stringIndex}-${h.fret}-${h.label}`}
-                      className="absolute top-1/2 -translate-y-1/2"
-                      style={{ left: `${fretToXPercent(h.fret)}%` }}
-                    >
-                      <span
-                        className={`flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold text-white shadow ${
-                          h.inChord
-                            ? "bg-purple-500"
-                            : h.isRoot
-                              ? "bg-blue-500"
-                              : h.isInKey
-                                ? "bg-emerald-500"
-                                : "bg-slate-400"
-                        }`}
-                        title={`Fret ~${h.fret.toFixed(1)} • ${h.label} • Partial ${h.partial}`}
-                      >
-                        {h.label}
-                      </span>
-                    </div>
-                  ))}
-              </div>
+          <div className="flex">
+            <div className="sticky left-0 z-30 w-28 border-r border-slate-200 bg-white/90 backdrop-blur">
+              {displayStrings.map((string, displayIdx) => {
+                const stringNumber = displayIdx + 1; // guitarist diagram: 1 is highest string
+                return (
+                  <div
+                    key={`label-${string.label}-${displayIdx}`}
+                    className="flex items-center justify-end pr-3 text-xs font-semibold text-slate-700"
+                    style={{ height: ROW_HEIGHT_PX }}
+                  >
+                    {stringNumber} ({string.label})
+                  </div>
+                );
+              })}
             </div>
-          ))}
+
+            <div
+              className="relative"
+              style={{
+                width: BOARD_WIDTH_PX,
+                height: totalHeight,
+                background: "linear-gradient(180deg, rgba(180,83,9,0.12), rgba(2,6,23,0.02))",
+              }}
+            >
+              {/* Frets (including nut) */}
+              {fretMarkers.map((fret) => {
+                const left = fretToXPercent(fret);
+                const isNut = fret === 0;
+                return (
+                  <div key={`fret-${fret}`} className="absolute top-0 h-full" style={{ left: `${left}%` }}>
+                    <div className={`h-full ${isNut ? "w-[4px] bg-slate-600/70" : "w-px bg-slate-300"}`} />
+                  </div>
+                );
+              })}
+
+              {/* Inlay dots (single centered; double at 12/24) */}
+              {INLAY_FRETS.map((fretNumber) => {
+                const left = fretToXPercent(fretNumber - 0.5);
+                const isDouble = fretNumber === 12 || fretNumber === 24;
+                const centerY = totalHeight / 2;
+                const dy = 14;
+                return (
+                  <div
+                    key={`inlay-${fretNumber}`}
+                    className="absolute"
+                    style={{ left: `${left}%`, top: centerY }}
+                  >
+                    <div className="absolute left-1/2 -translate-x-1/2">
+                      {!isDouble ? (
+                        <span className="block h-3.5 w-3.5 -translate-y-1/2 rounded-full bg-slate-400/70 shadow-sm ring-1 ring-slate-500/30" />
+                      ) : (
+                        <>
+                          <span
+                            className="absolute left-1/2 h-3.5 w-3.5 -translate-x-1/2 rounded-full bg-slate-400/70 shadow-sm ring-1 ring-slate-500/30"
+                            style={{ top: -dy }}
+                          />
+                          <span
+                            className="absolute left-1/2 h-3.5 w-3.5 -translate-x-1/2 rounded-full bg-slate-400/70 shadow-sm ring-1 ring-slate-500/30"
+                            style={{ top: dy }}
+                          />
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* String lines */}
+              {displayStrings.map((_, displayIdx) => {
+                const y = displayIdx * ROW_HEIGHT_PX + ROW_HEIGHT_PX / 2;
+                const thickness = Math.max(1, Math.round(1 + (displayIdx / Math.max(1, strings.length - 1)) * 2.5));
+                return (
+                  <div
+                    key={`string-${displayIdx}`}
+                    className="absolute left-0 w-full bg-slate-700/70"
+                    style={{ top: y, height: thickness, transform: "translateY(-50%)" }}
+                  />
+                );
+              })}
+
+              {/* Harmonic markers */}
+              {visible.map((h) => {
+                const displayIdx = strings.length - 1 - h.stringIndex; // flip so low strings are on bottom
+                const y = displayIdx * ROW_HEIGHT_PX + ROW_HEIGHT_PX / 2;
+                return (
+                  <div
+                    key={`${h.stringIndex}-${h.fret}-${h.label}`}
+                    className="absolute"
+                    style={{ left: `${fretToXPercent(h.fret)}%`, top: y, transform: "translate(-50%, -50%)" }}
+                  >
+                    <span
+                      className={`flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold text-white shadow ${
+                        h.inChord
+                          ? "bg-purple-500"
+                          : h.isRoot
+                            ? "bg-blue-500"
+                            : h.isInKey
+                              ? "bg-emerald-500"
+                              : "bg-slate-400"
+                      }`}
+                      title={`Fret ~${h.fret.toFixed(1)} • ${h.label} • Partial ${h.partial}`}
+                    >
+                      {h.label}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
           {/* Fret number row */}
           <div className="flex border-t border-slate-200 bg-white/60 text-[10px] text-slate-600">

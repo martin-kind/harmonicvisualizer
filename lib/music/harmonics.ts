@@ -44,7 +44,6 @@ export type HarmonicMarker = {
   partial: number;
   label: string;
   pitchClass: PitchClass;
-  octave?: number;
 };
 
 export function computeHarmonicsForString(
@@ -56,9 +55,8 @@ export function computeHarmonicsForString(
     return {
       fret: point.fret,
       partial: point.partial,
-      label: `${note.name}${note.octave ?? ""}`,
+      label: note.name,
       pitchClass: note.pitchClass,
-      octave: note.octave,
     };
   });
 }

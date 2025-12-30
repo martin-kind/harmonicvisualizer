@@ -16,6 +16,11 @@ export type TuningResult = {
 const STANDARD_BASE: number[] = [40, 45, 50, 55, 59, 64]; // E2 A2 D3 G3 B3 E4 (low -> high)
 const FOURTHS_BASE: number[] = [40, 45, 50, 55, 60, 65]; // E2 A2 D3 G3 C4 F4
 
+// For 4/5 string selections we treat this as "bass-like" by default:
+// low string should be E (per user feedback).
+const BASS_4_BASE: number[] = [28, 33, 38, 43]; // E1 A1 D2 G2
+const BASS_5_BASE: number[] = [28, 33, 38, 43, 48]; // E1 A1 D2 G2 C3
+
 function expandLowStrings(base: number[], stringCount: number): number[] {
   if (stringCount <= base.length) {
     return base.slice(base.length - stringCount);
@@ -29,12 +34,19 @@ function expandLowStrings(base: number[], stringCount: number): number[] {
 }
 
 export function presetTuning(preset: TuningPreset, stringCount: number): StringNote[] {
-  const base = preset === "fourths" ? FOURTHS_BASE : STANDARD_BASE;
+  const base =
+    stringCount === 4
+      ? BASS_4_BASE
+      : stringCount === 5
+        ? BASS_5_BASE
+        : preset === "fourths"
+          ? FOURTHS_BASE
+          : STANDARD_BASE;
   const values = expandLowStrings(base, stringCount);
   return values.map((midi) => {
     const note = midiToNote(midi);
     return {
-      label: `${note.name}${note.octave ?? ""}`,
+      label: note.name,
       midi,
       pitchClass: note.pitchClass,
     };
@@ -53,7 +65,7 @@ export function parseCustomTuning(inputs: string[], fallbackOctave = 3): TuningR
     const octave = parsed.octave ?? fallbackOctave;
     const midi = toMidi(parsed.pitchClass, octave);
     strings.push({
-      label: `${pitchClassToName(parsed.pitchClass)}${octave}`,
+      label: pitchClassToName(parsed.pitchClass),
       pitchClass: parsed.pitchClass,
       midi,
     });
