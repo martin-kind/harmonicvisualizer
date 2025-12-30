@@ -36,6 +36,9 @@ const tuningPresetOptions: { id: TuningPreset; label: string; description: strin
 
 export default function Home() {
   const TUNING_STORAGE_KEY = "harmonic-finder:tuning:v1";
+  const CHORD_HISTORY_KEY = "harmonic-finder:history:chords:v1";
+  const SCALE_HISTORY_KEY = "harmonic-finder:history:scales:v1";
+  const HISTORY_LIMIT = 12;
 
   const [topMode, setTopMode] = useState<"harmonics" | "notes">("harmonics");
   const [stringCount, setStringCount] = useState(6);
@@ -45,12 +48,18 @@ export default function Home() {
 
   const [scaleText, setScaleText] = useState("");
   const [scale, setScale] = useState<UiScale>({ data: null, source: "none" });
+  const [recentScales, setRecentScales] = useState<
+    { query: string; data: ParsedScale; createdAt: number }[]
+  >([]);
 
   const [chordText, setChordText] = useState("");
   const [chord, setChord] = useState<UiChord>({ data: null, source: "none" });
   const hasAutoEnabledInKey = useRef(false);
   const [labelMode, setLabelMode] = useState<"notes" | "degrees">("notes");
   const [showOtherHarmonics, setShowOtherHarmonics] = useState(false);
+  const [recentChords, setRecentChords] = useState<
+    { query: string; data: ParsedChord; createdAt: number }[]
+  >([]);
 
   // Load saved tuning on first mount
   useEffect(() => {
@@ -94,6 +103,29 @@ export default function Home() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Load cached history on first mount
+  useEffect(() => {
+    try {
+      const rawChords = window.localStorage.getItem(CHORD_HISTORY_KEY);
+      if (rawChords) {
+        const parsed = JSON.parse(rawChords);
+        if (Array.isArray(parsed)) setRecentChords(parsed);
+      }
+    } catch {
+      // ignore
+    }
+    try {
+      const rawScales = window.localStorage.getItem(SCALE_HISTORY_KEY);
+      if (rawScales) {
+        const parsed = JSON.parse(rawScales);
+        if (Array.isArray(parsed)) setRecentScales(parsed);
+      }
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Persist tuning whenever it changes
   useEffect(() => {
     try {
@@ -109,6 +141,49 @@ export default function Home() {
       // ignore quota/security errors
     }
   }, [TUNING_STORAGE_KEY, customInputs, preset, stringCount]);
+
+  // Persist history whenever it changes
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CHORD_HISTORY_KEY, JSON.stringify(recentChords));
+    } catch {
+      // ignore
+    }
+  }, [CHORD_HISTORY_KEY, recentChords]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SCALE_HISTORY_KEY, JSON.stringify(recentScales));
+    } catch {
+      // ignore
+    }
+  }, [SCALE_HISTORY_KEY, recentScales]);
+
+  function upsertChordHistory(query: string, data: ParsedChord) {
+    const now = Date.now();
+    setRecentChords((prev) => {
+      const filtered = prev.filter((x) => x.query !== query);
+      return [{ query, data, createdAt: now }, ...filtered].slice(0, HISTORY_LIMIT);
+    });
+  }
+
+  function upsertScaleHistory(query: string, data: ParsedScale) {
+    const now = Date.now();
+    setRecentScales((prev) => {
+      const filtered = prev.filter((x) => x.query !== query);
+      return [{ query, data, createdAt: now }, ...filtered].slice(0, HISTORY_LIMIT);
+    });
+  }
+
+  function getCachedChord(query: string): ParsedChord | null {
+    const hit = recentChords.find((x) => x.query === query);
+    return hit?.data ?? null;
+  }
+
+  function getCachedScale(query: string): ParsedScale | null {
+    const hit = recentScales.find((x) => x.query === query);
+    return hit?.data ?? null;
+  }
 
   useEffect(() => {
     if (!hasAutoEnabledInKey.current) {
@@ -149,6 +224,13 @@ export default function Home() {
       setChord({ data: null, source: "none" });
       return;
     }
+    const cached = getCachedChord(trimmed);
+    if (cached) {
+      setScale({ data: null, source: "none" });
+      setScaleText("");
+      setChord({ data: cached, source: "success" });
+      return;
+    }
     setScale({ data: null, source: "none" });
     setScaleText("");
     setChord({ data: null, source: "loading" });
@@ -169,6 +251,7 @@ export default function Home() {
       }
       const data = (await res.json()) as ParsedChord;
       setChord({ data, source: "success" });
+      upsertChordHistory(trimmed, data);
     } catch (error) {
       console.error(error);
       setChord({ data: null, source: "error", message: "Network or LLM error" });
@@ -179,6 +262,13 @@ export default function Home() {
     const trimmed = scaleText.trim();
     if (!trimmed) {
       setScale({ data: null, source: "none" });
+      return;
+    }
+    const cached = getCachedScale(trimmed);
+    if (cached) {
+      setChord({ data: null, source: "none" });
+      setChordText("");
+      setScale({ data: cached, source: "success" });
       return;
     }
     setChord({ data: null, source: "none" });
@@ -197,6 +287,7 @@ export default function Home() {
       }
       const data = (await res.json()) as ParsedScale;
       setScale({ data, source: "success" });
+      upsertScaleHistory(trimmed, data);
     } catch (error) {
       console.error(error);
       setScale({ data: null, source: "error", message: "Network or LLM error" });
@@ -401,6 +492,31 @@ export default function Home() {
                     Analyze
                   </button>
                 </div>
+
+                {recentScales.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-xs font-medium text-slate-600">Recent scales</div>
+                    <div className="flex flex-wrap gap-2">
+                      {recentScales.slice(0, 8).map((item) => (
+                        <button
+                          key={`scale-${item.query}-${item.createdAt}`}
+                          type="button"
+                          onClick={() => {
+                            setScaleText(item.query);
+                            setChord({ data: null, source: "none" });
+                            setChordText("");
+                            setScale({ data: item.data, source: "success" });
+                          }}
+                          className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-700 hover:bg-slate-100"
+                          title={item.data.label}
+                        >
+                          {item.query}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {scale.source === "loading" && <p className="text-xs text-slate-500">Calling /api/scale…</p>}
                 {scale.source === "error" && (
                   <p className="text-xs text-amber-700">{scale.message ?? "Could not parse scale"}</p>
@@ -430,6 +546,31 @@ export default function Home() {
                   Analyze
                 </button>
               </div>
+
+              {recentChords.length > 0 && (
+                <div className="space-y-1">
+                  <div className="text-xs font-medium text-slate-600">Recent chords</div>
+                  <div className="flex flex-wrap gap-2">
+                    {recentChords.slice(0, 8).map((item) => (
+                      <button
+                        key={`chord-${item.query}-${item.createdAt}`}
+                        type="button"
+                        onClick={() => {
+                          setChordText(item.query);
+                          setScale({ data: null, source: "none" });
+                          setScaleText("");
+                          setChord({ data: item.data, source: "success" });
+                        }}
+                        className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-700 hover:bg-slate-100"
+                        title={item.data.label}
+                      >
+                        {item.query}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {chord.source === "loading" && (
                 <p className="text-xs text-slate-500">Calling /api/chord…</p>
               )}
