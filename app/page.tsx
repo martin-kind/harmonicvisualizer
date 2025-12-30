@@ -159,17 +159,18 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
-      <div className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-10">
-        <header className="flex flex-col gap-2">
-          <h1 className="text-3xl font-semibold tracking-tight">Guitar Harmonic Finder</h1>
-          <p className="text-sm text-slate-600">
-            Configure your guitar, view natural harmonics from frets 0–24, and highlight notes that
-            fit a key or chord.
-          </p>
-        </header>
+      <div className="px-6 py-10">
+        <div className="mx-auto flex max-w-6xl flex-col gap-8">
+          <header className="flex flex-col gap-2">
+            <h1 className="text-3xl font-semibold tracking-tight">Guitar Harmonic Finder</h1>
+            <p className="text-sm text-slate-600">
+              Configure your guitar, view natural harmonics from frets 0–24, and highlight notes that
+              fit a key or chord.
+            </p>
+          </header>
 
-        <section className="grid gap-4 rounded-xl bg-white p-4 shadow-sm sm:grid-cols-2">
-          <div className="space-y-3">
+          <section className="grid gap-4 rounded-xl bg-white p-4 shadow-sm sm:grid-cols-2">
+            <div className="space-y-3">
             <label className="text-sm font-medium text-slate-700">
               Strings (4–8)
               <input
@@ -276,11 +277,24 @@ export default function Home() {
               >
                 Chord
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setScale({ data: null, source: "none" });
+                  setScaleText("");
+                  setChord({ data: null, source: "none" });
+                  setChordText("");
+                }}
+                className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                title="Clear scale and chord to show all harmonics"
+              >
+                Show all
+              </button>
             </div>
 
             {activeTab === "scale" && (
               <div className="space-y-2">
-                <p className="text-sm font-medium text-slate-700">Scale / Key (AI-assisted)</p>
+                <p className="text-sm font-medium text-slate-700">Scale / Key</p>
                 <div className="flex gap-2">
                   <input
                     value={scaleText}
@@ -301,7 +315,7 @@ export default function Home() {
                 )}
                 {scale.data && (
                   <div className="text-xs text-slate-600">
-                    {scale.data.label}: {scale.data.noteNames.join(", ")} ({scale.data.source})
+                    {scale.data.label}: {scale.data.noteNames.join(", ")}
                   </div>
                 )}
               </div>
@@ -309,7 +323,7 @@ export default function Home() {
 
             {activeTab === "chord" && (
             <div className="space-y-2">
-              <p className="text-sm font-medium text-slate-700">Chord (AI-assisted)</p>
+              <p className="text-sm font-medium text-slate-700">Chord</p>
               <div className="flex gap-2">
                 <input
                   value={chordText}
@@ -336,8 +350,7 @@ export default function Home() {
                 <div className="text-xs text-slate-600">
                   Notes: {(chord.data.noteNames ?? chord.data.pitchClasses.map((pc) => pitchClassToName(pc))).join(
                     ", ",
-                  )}{" "}
-                  ({chord.data.source})
+                  )}
                 </div>
               )}
             </div>
@@ -384,10 +397,12 @@ export default function Home() {
             </div>
 
             <Legend />
-          </div>
-        </section>
+            </div>
+          </section>
+        </div>
 
-        <section className="rounded-xl bg-white p-4 shadow-sm">
+        {/* Full-width fretboard (not constrained by the max-w-6xl controls container) */}
+        <section className="mt-8 rounded-xl bg-white p-4 shadow-sm">
           <Fretboard
             strings={tuningResult.strings}
             harmonics={harmonics}
@@ -500,7 +515,6 @@ function Fretboard({
   }
 
   const FRET_COUNT = 24;
-  const BOARD_WIDTH_PX = 1200;
   const ROW_HEIGHT_PX = 44;
   const INLAY_FRETS = [3, 5, 7, 9, 12, 15, 17, 19, 21, 24];
   const totalHeight = strings.length * ROW_HEIGHT_PX;
@@ -532,27 +546,28 @@ function Fretboard({
       </div>
 
       <div className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-50">
-        <div className="min-w-fit">
+        <div className="w-full">
           <div className="flex">
-            <div className="sticky left-0 z-30 w-28 border-r border-slate-200 bg-white/90 backdrop-blur">
+            <div className="sticky left-0 z-30 w-20 border-r border-slate-200 bg-white/90 backdrop-blur">
               {displayStrings.map((string, displayIdx) => {
                 const stringNumber = displayIdx + 1; // guitarist diagram: 1 is highest string
                 return (
                   <div
                     key={`label-${string.label}-${displayIdx}`}
-                    className="flex items-center justify-end pr-3 text-xs font-semibold text-slate-700"
+                    className="flex items-center justify-end pr-2 text-xs font-semibold text-slate-700"
                     style={{ height: ROW_HEIGHT_PX }}
                   >
-                    {stringNumber} ({string.label})
+                    <span className="whitespace-nowrap">
+                      {stringNumber} {string.label}
+                    </span>
                   </div>
                 );
               })}
             </div>
 
             <div
-              className="relative"
+              className="relative w-full min-w-[1100px]"
               style={{
-                width: `${BOARD_WIDTH_PX}px`,
                 height: `${totalHeight}px`,
                 background: "linear-gradient(180deg, rgba(180,83,9,0.12), rgba(2,6,23,0.02))",
               }}
@@ -652,8 +667,8 @@ function Fretboard({
 
           {/* Fret number row */}
           <div className="flex border-t border-slate-200 bg-white/60 text-[10px] text-slate-600">
-            <div className="sticky left-0 z-20 w-28 border-r border-slate-200 bg-white/90 backdrop-blur" />
-            <div className="relative" style={{ width: `${BOARD_WIDTH_PX}px`, height: "26px" }}>
+            <div className="sticky left-0 z-20 w-20 border-r border-slate-200 bg-white/90 backdrop-blur" />
+            <div className="relative w-full min-w-[1100px]" style={{ height: "26px" }}>
               {fretMarkers.map((fret) => {
                 const left = fretToXPercent(fret);
                 return (
