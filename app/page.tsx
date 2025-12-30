@@ -4,7 +4,6 @@ import { useMemo, useState } from "react";
 import { ALL_KEYS, KeySignature } from "@/lib/music/keys";
 import { TuningPreset, buildTuning } from "@/lib/music/tunings";
 import { buildFretboardHarmonics, EnrichedHarmonic } from "@/lib/music/fretboard";
-import { HARMONIC_FRETS } from "@/lib/music/harmonics";
 import { ParsedChord, parseChordLocally } from "@/lib/music/chords";
 import { pitchClassToName } from "@/lib/music/notes";
 
@@ -54,7 +53,7 @@ export default function Home() {
     });
   }, [tuningResult.strings, selectedKey, chord.data]);
 
-  const fretMarkers = useMemo(() => [...new Set([...HARMONIC_FRETS, 0, 24])].sort((a, b) => a - b), []);
+  const fretMarkers = useMemo(() => Array.from({ length: 25 }, (_, i) => i), []);
 
   async function analyzeChord() {
     const trimmed = chordText.trim();
@@ -294,6 +293,19 @@ function Fretboard({
     return harmonics.filter((h) => h.isInKey || h.inChord);
   }, [harmonics, showOnlyKey]);
 
+  const FRET_COUNT = 24;
+  const BOARD_WIDTH_PX = 1200;
+  const ROW_HEIGHT_PX = 44;
+  const INLAY_FRETS = [3, 5, 7, 9, 12, 15, 17, 19, 21, 24];
+
+  function fretToXPercent(fret: number) {
+    // Guitar fret spacing is logarithmic: position from nut is 1 - 2^(-f/12).
+    // Normalize so fret 24 maps to 100%.
+    const denom = 1 - Math.pow(2, -FRET_COUNT / 12);
+    const pos = 1 - Math.pow(2, -fret / 12);
+    return (pos / denom) * 100;
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex justify-between text-sm text-slate-700">
@@ -304,55 +316,112 @@ function Fretboard({
         <span className="text-xs text-slate-500">Frets 0–24</span>
       </div>
 
-      <div className="relative overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
-        <div className="absolute inset-0 px-10">
+      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-slate-50">
+        <div className="min-w-fit">
           {strings.map((string, idx) => (
             <div
               key={string.label + idx}
-              className="relative h-16 border-b border-slate-200 last:border-b-0"
+              className="relative flex border-b border-slate-200 last:border-b-0"
+              style={{ height: ROW_HEIGHT_PX }}
             >
-              <div className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-slate-300" />
-              <span className="absolute left-0 top-2 ml-[-2.5rem] text-xs font-semibold text-slate-600">
+              <div className="sticky left-0 z-20 flex w-28 items-center justify-end border-r border-slate-200 bg-white/90 pr-3 text-xs font-semibold text-slate-700 backdrop-blur">
                 {idx + 1} ({string.label})
-              </span>
-              {visible
-                .filter((h) => h.stringIndex === idx)
-                .map((h) => (
-                  <div
-                    key={`${h.stringIndex}-${h.fret}-${h.label}`}
-                    className="absolute top-1/2 -translate-y-1/2"
-                    style={{ left: `${(h.fret / 24) * 100}%` }}
-                  >
-                    <span
-                      className={`flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold text-white shadow ${
-                        h.inChord
-                          ? "bg-purple-500"
-                          : h.isRoot
-                            ? "bg-blue-500"
-                            : h.isInKey
-                              ? "bg-emerald-500"
-                              : "bg-slate-400"
-                      }`}
-                      title={`Fret ~${h.fret.toFixed(1)} • ${h.label} • Partial ${h.partial}`}
+              </div>
+
+              <div
+                className="relative"
+                style={{
+                  width: BOARD_WIDTH_PX,
+                  background: "linear-gradient(180deg, rgba(180,83,9,0.10), rgba(2,6,23,0.02))",
+                }}
+              >
+                {/* String line */}
+                <div
+                  className="absolute left-0 top-1/2 w-full -translate-y-1/2 bg-slate-700/70"
+                  style={{
+                    height: Math.max(1, Math.round(3.25 - idx * 0.35)),
+                  }}
+                />
+
+                {/* Frets (including nut) */}
+                {fretMarkers.map((fret) => {
+                  const left = fretToXPercent(fret);
+                  const isNut = fret === 0;
+                  return (
+                    <div
+                      key={`fret-${idx}-${fret}`}
+                      className="absolute top-0 h-full"
+                      style={{ left: `${left}%` }}
                     >
-                      {h.label}
-                    </span>
-                  </div>
-                ))}
+                      <div
+                        className={`h-full ${isNut ? "w-[4px] bg-slate-600/70" : "w-px bg-slate-300"}`}
+                      />
+                    </div>
+                  );
+                })}
+
+                {/* Inlay dots (placed in the fret space for the target fret number) */}
+                {INLAY_FRETS.map((fretNumber) => {
+                  const left = fretToXPercent(fretNumber - 0.5);
+                  const isDouble = fretNumber === 12 || fretNumber === 24;
+                  return (
+                    <div
+                      key={`inlay-${idx}-${fretNumber}`}
+                      className="absolute top-1/2 -translate-y-1/2"
+                      style={{ left: `${left}%` }}
+                    >
+                      <div className="flex items-center justify-center gap-2 opacity-40">
+                        <span className="h-2.5 w-2.5 rounded-full bg-slate-200 shadow-sm" />
+                        {isDouble && <span className="h-2.5 w-2.5 rounded-full bg-slate-200 shadow-sm" />}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Harmonic markers */}
+                {visible
+                  .filter((h) => h.stringIndex === idx)
+                  .map((h) => (
+                    <div
+                      key={`${h.stringIndex}-${h.fret}-${h.label}`}
+                      className="absolute top-1/2 -translate-y-1/2"
+                      style={{ left: `${fretToXPercent(h.fret)}%` }}
+                    >
+                      <span
+                        className={`flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold text-white shadow ${
+                          h.inChord
+                            ? "bg-purple-500"
+                            : h.isRoot
+                              ? "bg-blue-500"
+                              : h.isInKey
+                                ? "bg-emerald-500"
+                                : "bg-slate-400"
+                        }`}
+                        title={`Fret ~${h.fret.toFixed(1)} • ${h.label} • Partial ${h.partial}`}
+                      >
+                        {h.label}
+                      </span>
+                    </div>
+                  ))}
+              </div>
             </div>
           ))}
-        </div>
 
-        <div className="relative z-10 h-10 px-10 text-[10px] text-slate-500">
-          {fretMarkers.map((fret) => {
-            const left = (fret / 24) * 100;
-            return (
-              <div key={fret} className="absolute" style={{ left: `${left}%` }}>
-                <div className="absolute left-1/2 top-0 h-3 w-px -translate-x-1/2 bg-slate-300" />
-                <div className="absolute left-1/2 top-3 -translate-x-1/2">{fret}</div>
-              </div>
-            );
-          })}
+          {/* Fret number row */}
+          <div className="flex border-t border-slate-200 bg-white/60 text-[10px] text-slate-600">
+            <div className="sticky left-0 z-20 w-28 border-r border-slate-200 bg-white/90 backdrop-blur" />
+            <div className="relative" style={{ width: BOARD_WIDTH_PX, height: 26 }}>
+              {fretMarkers.map((fret) => {
+                const left = fretToXPercent(fret);
+                return (
+                  <div key={`label-${fret}`} className="absolute" style={{ left: `${left}%` }}>
+                    <div className="absolute left-1/2 top-0 h-2 w-px -translate-x-1/2 bg-slate-300" />
+                    <div className="absolute left-1/2 top-2 -translate-x-1/2">{fret}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </div>
     </div>
