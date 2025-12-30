@@ -61,7 +61,11 @@ async function callLlm(chordText: string): Promise<ParsedChord | null> {
   const root = parseNote(parsed.root);
   if (!root) return null;
 
-  const pcs = parsed.notes
+  const noteNames = parsed.notes
+    .map((n) => parseNote(n)?.name)
+    .filter((name): name is string => !!name);
+
+  const pcs = noteNames
     .map((n) => parseNote(n)?.pitchClass)
     .filter((pc): pc is PitchClass => pc !== undefined);
 
@@ -69,8 +73,10 @@ async function callLlm(chordText: string): Promise<ParsedChord | null> {
 
   return {
     root,
+    rootName: root.name,
+    noteNames,
     pitchClasses: pcs,
-    label: `${pitchClassToName(root.pitchClass)} chord`,
+    label: `${root.name} chord`,
     source: "llm",
   };
 }

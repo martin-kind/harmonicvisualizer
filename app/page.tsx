@@ -1,14 +1,28 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ALL_KEYS, KeySignature } from "@/lib/music/keys";
 import { TuningPreset, buildTuning } from "@/lib/music/tunings";
 import { buildFretboardHarmonics, EnrichedHarmonic } from "@/lib/music/fretboard";
 import { ParsedChord } from "@/lib/music/chords";
-import { pitchClassToName } from "@/lib/music/notes";
+import { parseNote, PitchClass, pitchClassToName } from "@/lib/music/notes";
 
 type UiChord = {
   data: ParsedChord | null;
+  source: "none" | "loading" | "error" | "success";
+  message?: string;
+};
+
+type ParsedScale = {
+  label: string;
+  rootName: string;
+  rootPitchClass: PitchClass;
+  noteNames: string[];
+  pitchClasses: PitchClass[];
+  source: "llm";
+};
+
+type UiScale = {
+  data: ParsedScale | null;
   source: "none" | "loading" | "error" | "success";
   message?: string;
 };
@@ -19,32 +33,25 @@ const tuningPresetOptions: { id: TuningPreset; label: string; description: strin
   { id: "custom", label: "Custom", description: "Enter note per string" },
 ];
 
-const keyOptions = ALL_KEYS.map((k) => ({ value: k.label, key: k }));
-
 export default function Home() {
   const [stringCount, setStringCount] = useState(6);
   const [preset, setPreset] = useState<TuningPreset>("standard");
   const [customInputs, setCustomInputs] = useState<string[]>(Array(8).fill(""));
-  const [selectedKeyLabel, setSelectedKeyLabel] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"scale" | "chord">("scale");
+
+  const [scaleText, setScaleText] = useState("");
+  const [scale, setScale] = useState<UiScale>({ data: null, source: "none" });
+
   const [chordText, setChordText] = useState("");
   const [chord, setChord] = useState<UiChord>({ data: null, source: "none" });
   const hasAutoEnabledInKey = useRef(false);
   const [labelMode, setLabelMode] = useState<"notes" | "degrees">("notes");
 
-  const selectedKey: KeySignature | null = useMemo(() => {
-    if (!selectedKeyLabel) return null;
-    return ALL_KEYS.find((k) => k.label === selectedKeyLabel) ?? null;
-  }, [selectedKeyLabel]);
-
   useEffect(() => {
-    if (!selectedKeyLabel) {
-      hasAutoEnabledInKey.current = false;
-      return;
-    }
     if (!hasAutoEnabledInKey.current) {
       hasAutoEnabledInKey.current = true;
     }
-  }, [selectedKeyLabel]);
+  }, []);
 
   const tuningResult = useMemo(
     () =>
@@ -59,10 +66,16 @@ export default function Home() {
   const harmonics: EnrichedHarmonic[] = useMemo(() => {
     return buildFretboardHarmonics({
       tuning: tuningResult.strings,
-      key: selectedKey,
-      chord: chord.data,
+      key:
+        activeTab === "scale" && scale.data
+          ? {
+              root: scale.data.rootPitchClass,
+              scale: scale.data.pitchClasses,
+            }
+          : null,
+      chord: activeTab === "chord" ? chord.data : null,
     });
-  }, [tuningResult.strings, selectedKey, chord.data]);
+  }, [tuningResult.strings, activeTab, chord.data, scale.data]);
 
   const fretMarkers = useMemo(() => Array.from({ length: 25 }, (_, i) => i), []);
 
@@ -72,8 +85,8 @@ export default function Home() {
       setChord({ data: null, source: "none" });
       return;
     }
-    // Mutually exclusive mode: chord mode clears key mode.
-    setSelectedKeyLabel(null);
+    setScale({ data: null, source: "none" });
+    setScaleText("");
     setChord({ data: null, source: "loading" });
     try {
       const res = await fetch("/api/chord", {
@@ -98,8 +111,51 @@ export default function Home() {
     }
   }
 
+  async function analyzeScale() {
+    const trimmed = scaleText.trim();
+    if (!trimmed) {
+      setScale({ data: null, source: "none" });
+      return;
+    }
+    setChord({ data: null, source: "none" });
+    setChordText("");
+    setScale({ data: null, source: "loading" });
+    try {
+      const res = await fetch("/api/scale", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scale: trimmed }),
+      });
+      if (!res.ok) {
+        const body = await res.json();
+        setScale({ data: null, source: "error", message: body?.error ?? "Could not parse scale" });
+        return;
+      }
+      const data = (await res.json()) as ParsedScale;
+      setScale({ data, source: "success" });
+    } catch (error) {
+      console.error(error);
+      setScale({ data: null, source: "error", message: "Network or LLM error" });
+    }
+  }
+
   type DisplayMode = "all" | "key" | "chord";
-  const mode: DisplayMode = chord.data ? "chord" : selectedKey ? "key" : "all";
+  const mode: DisplayMode =
+    activeTab === "chord" ? (chord.data ? "chord" : "all") : scale.data ? "key" : "all";
+
+  const noteNameMap: Record<string, string> | null = useMemo(() => {
+    const names =
+      mode === "chord" ? chord.data?.noteNames : mode === "key" ? scale.data?.noteNames : null;
+    if (!names) return null;
+    const map: Record<string, string> = {};
+    for (const raw of names) {
+      const parsed = parseNote(raw);
+      if (!parsed) continue;
+      const key = String(parsed.pitchClass);
+      if (!map[key]) map[key] = parsed.name;
+    }
+    return map;
+  }, [mode, chord.data?.noteNames, scale.data?.noteNames]);
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -189,30 +245,69 @@ export default function Home() {
           </div>
 
           <div className="space-y-3">
-            <label className="flex flex-col gap-1 text-sm font-medium text-slate-700">
-              Key (major / minor)
-              <select
-                value={selectedKeyLabel ?? ""}
-                onChange={(e) => {
-                  const next = e.target.value || null;
-                  setSelectedKeyLabel(next);
-                  // Mutually exclusive mode: key mode clears chord mode.
-                  if (next) {
-                    setChord({ data: null, source: "none" });
-                    setChordText("");
-                  }
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("scale");
+                  setChord({ data: null, source: "none" });
+                  setChordText("");
                 }}
-                className="rounded border border-slate-200 px-3 py-2 text-sm"
+                className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
+                  activeTab === "scale"
+                    ? "border-blue-500 bg-blue-50 text-blue-700"
+                    : "border-slate-200 bg-slate-50 text-slate-700"
+                }`}
               >
-                <option value="">None</option>
-                {keyOptions.map((opt) => (
-                  <option key={opt.value} value={opt.value}>
-                    {opt.value}
-                  </option>
-                ))}
-              </select>
-            </label>
+                Scale / Key
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab("chord");
+                  setScale({ data: null, source: "none" });
+                  setScaleText("");
+                }}
+                className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
+                  activeTab === "chord"
+                    ? "border-blue-500 bg-blue-50 text-blue-700"
+                    : "border-slate-200 bg-slate-50 text-slate-700"
+                }`}
+              >
+                Chord
+              </button>
+            </div>
 
+            {activeTab === "scale" && (
+              <div className="space-y-2">
+                <p className="text-sm font-medium text-slate-700">Scale / Key (AI-assisted)</p>
+                <div className="flex gap-2">
+                  <input
+                    value={scaleText}
+                    onChange={(e) => setScaleText(e.target.value)}
+                    placeholder='e.g. "Gb mixolydian", "D melodic minor", "C major pentatonic"'
+                    className="flex-1 rounded border border-slate-200 px-3 py-2 text-sm"
+                  />
+                  <button
+                    onClick={analyzeScale}
+                    className="rounded bg-blue-600 px-3 py-2 text-sm font-medium text-white shadow hover:bg-blue-700"
+                  >
+                    Analyze
+                  </button>
+                </div>
+                {scale.source === "loading" && <p className="text-xs text-slate-500">Calling /api/scale…</p>}
+                {scale.source === "error" && (
+                  <p className="text-xs text-amber-700">{scale.message ?? "Could not parse scale"}</p>
+                )}
+                {scale.data && (
+                  <div className="text-xs text-slate-600">
+                    {scale.data.label}: {scale.data.noteNames.join(", ")} ({scale.data.source})
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === "chord" && (
             <div className="space-y-2">
               <p className="text-sm font-medium text-slate-700">Chord (AI-assisted)</p>
               <div className="flex gap-2">
@@ -234,16 +329,19 @@ export default function Home() {
               )}
               {chord.source === "error" && (
                 <p className="text-xs text-amber-700">
-                  {chord.message ?? "Could not parse chord; showing local guess if available."}
+                  {chord.message ?? "Could not parse chord"}
                 </p>
               )}
               {chord.data && (
                 <div className="text-xs text-slate-600">
-                  Notes: {chord.data.pitchClasses.map((pc) => pitchClassToName(pc)).join(", ")} (
-                  {chord.data.source})
+                  Notes: {(chord.data.noteNames ?? chord.data.pitchClasses.map((pc) => pitchClassToName(pc))).join(
+                    ", ",
+                  )}{" "}
+                  ({chord.data.source})
                 </div>
               )}
             </div>
+            )}
 
             <div className="space-y-2">
               <p className="text-sm font-medium text-slate-700">Labels</p>
@@ -276,7 +374,9 @@ export default function Home() {
                 </button>
               </div>
               {labelMode === "degrees" && mode === "key" && (
-                <p className="text-xs text-slate-500">Showing scale degrees (1–7) for the selected key.</p>
+                <p className="text-xs text-slate-500">
+                  Showing scale degrees (1–{scale.data?.pitchClasses.length ?? 7}) for the selected scale.
+                </p>
               )}
               {labelMode === "degrees" && mode === "chord" && (
                 <p className="text-xs text-slate-500">Showing chord degrees relative to the chord root.</p>
@@ -294,9 +394,17 @@ export default function Home() {
             fretMarkers={fretMarkers}
             mode={mode}
             labelMode={labelMode}
-            keySignature={selectedKey}
-            keyLabel={selectedKey?.label}
+            keySignature={
+              scale.data
+                ? {
+                    root: scale.data.rootPitchClass,
+                    scale: scale.data.pitchClasses,
+                  }
+                : null
+            }
+            keyLabel={scale.data?.label}
             chord={chord.data}
+            noteNameMap={noteNameMap}
           />
         </section>
       </div>
@@ -329,9 +437,10 @@ type FretboardProps = {
   fretMarkers: number[];
   mode: "all" | "key" | "chord";
   labelMode: "notes" | "degrees";
-  keySignature?: KeySignature | null;
+  keySignature?: { root: PitchClass; scale: PitchClass[] } | null;
   keyLabel?: string;
   chord?: ParsedChord | null;
+  noteNameMap?: Record<string, string> | null;
 };
 
 function Fretboard({
@@ -343,6 +452,7 @@ function Fretboard({
   keySignature,
   keyLabel,
   chord,
+  noteNameMap,
 }: FretboardProps) {
   const visible = useMemo(() => {
     if (mode === "chord") return harmonics.filter((h) => h.inChord);
@@ -379,7 +489,7 @@ function Fretboard({
   }
 
   function markerText(h: EnrichedHarmonic): string {
-    if (labelMode === "notes") return h.label;
+    if (labelMode === "notes") return noteNameMap?.[String(h.pitchClass)] ?? h.label;
     if (mode === "key") return keyDegreeForPitchClass(h.pitchClass) ?? h.label;
     if (mode === "chord") return chordDegreeForPitchClass(h.pitchClass) ?? h.label;
     return h.label;

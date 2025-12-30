@@ -2,6 +2,10 @@ import { ParsedNote, PitchClass, parseNote, pitchClassToName, uniquePitchClasses
 
 export type ParsedChord = {
   root: ParsedNote;
+  // Optional: when produced by the LLM we can preserve enharmonic spellings.
+  // These are note names without octaves, e.g. ["Gb","Bb","Db","E"].
+  noteNames?: string[];
+  rootName?: string;
   pitchClasses: PitchClass[];
   label: string;
   source: "local" | "llm";
