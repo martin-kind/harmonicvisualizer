@@ -4,7 +4,7 @@ import { PitchClass, pitchClassToName, parseNote } from "@/lib/music/notes";
 
 type LlmChord = {
   root: string;
-  notes: string[];
+  tones: { note: string; degree: string }[];
 };
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
@@ -13,8 +13,16 @@ const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
 async function callLlm(chordText: string): Promise<ParsedChord | null> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) return null;
-  const system = `You are a music theory assistant. Convert chord symbols into the set of pitch classes (note names). Return only JSON.`;
-  const user = `Chord: ${chordText}\nReturn JSON with root (e.g. "C#", "Gb") and notes array of note names (pitch classes only, no octaves).`;
+  const system =
+    "You are a music theory assistant. Convert chord symbols into chord tones with correct enharmonic spellings and explicit chord-degree labels. Return only JSON.";
+  const user =
+    `Chord: ${chordText}\n` +
+    `Return JSON with:\n` +
+    `- root: root note name (pitch class only, no octave), e.g. "C#", "Gb"\n` +
+    `- tones: array of objects { note, degree }\n` +
+    `  - note: pitch-class note name (no octave), spelled consistently with the chord symbol.\n` +
+    `  - degree: chord degree label. Use extensions when appropriate (9/11/13) and alterations like b9/#9/#11/b13.\n` +
+    `    Examples: 1, b3, 3, 5, b7, 7, 9, b9, #9, 11, #11, 13, b13\n`;
   const body = {
     model: OPENAI_MODEL,
     messages: [
@@ -29,13 +37,21 @@ async function callLlm(chordText: string): Promise<ParsedChord | null> {
           type: "object",
           properties: {
             root: { type: "string" },
-            notes: {
+            tones: {
               type: "array",
-              items: { type: "string" },
               minItems: 1,
+              items: {
+                type: "object",
+                properties: {
+                  note: { type: "string" },
+                  degree: { type: "string" },
+                },
+                required: ["note", "degree"],
+                additionalProperties: false,
+              },
             },
           },
-          required: ["root", "notes"],
+          required: ["root", "tones"],
           additionalProperties: false,
         },
         strict: true,
@@ -61,8 +77,8 @@ async function callLlm(chordText: string): Promise<ParsedChord | null> {
   const root = parseNote(parsed.root);
   if (!root) return null;
 
-  const noteNames = parsed.notes
-    .map((n) => parseNote(n)?.name)
+  const noteNames = parsed.tones
+    .map((t) => parseNote(t.note)?.name)
     .filter((name): name is string => !!name);
 
   const pcs = noteNames
@@ -71,10 +87,20 @@ async function callLlm(chordText: string): Promise<ParsedChord | null> {
 
   if (!pcs.length) return null;
 
+  const degreeMap: Record<string, string> = {};
+  for (const t of parsed.tones) {
+    const n = parseNote(t.note);
+    if (!n) continue;
+    const key = String(n.pitchClass);
+    if (!degreeMap[key]) degreeMap[key] = t.degree;
+  }
+  degreeMap[String(root.pitchClass)] = "1";
+
   return {
     root,
     rootName: root.name,
     noteNames,
+    degreeMap,
     pitchClasses: pcs,
     label: `${root.name} chord`,
     source: "llm",
@@ -84,7 +110,7 @@ async function callLlm(chordText: string): Promise<ParsedChord | null> {
 function safeParse(content: string): LlmChord | null {
   try {
     const value = JSON.parse(content);
-    if (value && typeof value.root === "string" && Array.isArray(value.notes)) {
+    if (value && typeof value.root === "string" && Array.isArray(value.tones)) {
       return value as LlmChord;
     }
     return null;

@@ -6,7 +6,15 @@ const mockLlmResponse = {
   choices: [
     {
       message: {
-        content: JSON.stringify({ root: "C", notes: ["C", "E", "G", "B"] }),
+        content: JSON.stringify({
+          root: "C",
+          tones: [
+            { note: "C", degree: "1" },
+            { note: "E", degree: "3" },
+            { note: "G", degree: "5" },
+            { note: "B", degree: "7" },
+          ],
+        }),
       },
     },
   ],

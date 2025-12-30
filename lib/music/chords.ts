@@ -6,6 +6,9 @@ export type ParsedChord = {
   // These are note names without octaves, e.g. ["Gb","Bb","Db","E"].
   noteNames?: string[];
   rootName?: string;
+  // Optional: explicit chord degrees per pitch class, as strings (e.g. "3", "b7", "#11").
+  // Keys are pitch classes serialized as strings, e.g. "6" -> "#11".
+  degreeMap?: Record<string, string>;
   pitchClasses: PitchClass[];
   label: string;
   source: "local" | "llm";

@@ -46,6 +46,7 @@ export default function Home() {
   const [chord, setChord] = useState<UiChord>({ data: null, source: "none" });
   const hasAutoEnabledInKey = useRef(false);
   const [labelMode, setLabelMode] = useState<"notes" | "degrees">("notes");
+  const [showOtherHarmonics, setShowOtherHarmonics] = useState(false);
 
   useEffect(() => {
     if (!hasAutoEnabledInKey.current) {
@@ -236,11 +237,14 @@ export default function Home() {
             <div>
               <p className="text-sm font-medium text-slate-700">Tuning preview</p>
               <div className="mt-2 flex flex-wrap gap-2 text-sm text-slate-700">
-                {tuningResult.strings.map((s, idx) => (
-                  <span key={`${s.label}-${idx}`} className="rounded bg-slate-100 px-2 py-1">
-                    {idx + 1}: {s.label}
-                  </span>
-                ))}
+                {tuningResult.strings.map((s, idx) => {
+                  const stringNumber = tuningResult.strings.length - idx; // low string gets highest number
+                  return (
+                    <span key={`${s.label}-${idx}`} className="rounded bg-slate-100 px-2 py-1">
+                      {stringNumber}: {s.label}
+                    </span>
+                  );
+                })}
               </div>
             </div>
           </div>
@@ -396,6 +400,19 @@ export default function Home() {
               )}
             </div>
 
+            {mode !== "all" && (
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={showOtherHarmonics}
+                  onChange={(e) => setShowOtherHarmonics(e.target.checked)}
+                />
+                {mode === "key"
+                  ? "Show non-scale/key harmonics"
+                  : "Show non-chord-tone harmonics"}
+              </label>
+            )}
+
             <Legend />
             </div>
           </section>
@@ -409,6 +426,7 @@ export default function Home() {
             fretMarkers={fretMarkers}
             mode={mode}
             labelMode={labelMode}
+            showOtherHarmonics={showOtherHarmonics}
             keySignature={
               scale.data
                 ? {
@@ -452,6 +470,7 @@ type FretboardProps = {
   fretMarkers: number[];
   mode: "all" | "key" | "chord";
   labelMode: "notes" | "degrees";
+  showOtherHarmonics: boolean;
   keySignature?: { root: PitchClass; scale: PitchClass[] } | null;
   keyLabel?: string;
   chord?: ParsedChord | null;
@@ -464,16 +483,18 @@ function Fretboard({
   fretMarkers,
   mode,
   labelMode,
+  showOtherHarmonics,
   keySignature,
   keyLabel,
   chord,
   noteNameMap,
 }: FretboardProps) {
   const visible = useMemo(() => {
+    if (showOtherHarmonics) return harmonics;
     if (mode === "chord") return harmonics.filter((h) => h.inChord);
     if (mode === "key") return harmonics.filter((h) => h.isInKey);
     return harmonics;
-  }, [harmonics, mode]);
+  }, [harmonics, mode, showOtherHarmonics]);
 
   function keyDegreeForPitchClass(pc: number): string | null {
     if (!keySignature) return null;
@@ -484,6 +505,7 @@ function Fretboard({
 
   function chordDegreeForPitchClass(pc: number): string | null {
     if (!chord) return null;
+    if (chord.degreeMap?.[String(pc)] !== undefined) return chord.degreeMap[String(pc)];
     const rootPc = chord.root.pitchClass;
     const interval = (((pc - rootPc) % 12) + 12) % 12;
     const map: Record<number, string> = {
@@ -653,7 +675,7 @@ function Fretboard({
                             ? "bg-purple-500"
                             : h.isInKey
                               ? "bg-emerald-500"
-                              : "bg-slate-400"
+                                : "bg-slate-300"
                       }`}
                       title={`Fret ~${h.fret.toFixed(1)} • ${h.label} • Partial ${h.partial}`}
                     >
