@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ALL_KEYS, KeySignature } from "@/lib/music/keys";
 import { TuningPreset, buildTuning } from "@/lib/music/tunings";
 import { buildFretboardHarmonics, EnrichedHarmonic } from "@/lib/music/fretboard";
-import { ParsedChord, parseChordLocally } from "@/lib/music/chords";
+import { ParsedChord } from "@/lib/music/chords";
 import { pitchClassToName } from "@/lib/music/notes";
 
 type UiChord = {
@@ -26,8 +26,6 @@ export default function Home() {
   const [preset, setPreset] = useState<TuningPreset>("standard");
   const [customInputs, setCustomInputs] = useState<string[]>(Array(8).fill(""));
   const [selectedKeyLabel, setSelectedKeyLabel] = useState<string | null>(null);
-  const [showOnlyKey, setShowOnlyKey] = useState(false);
-  const [showOnlyChordTones, setShowOnlyChordTones] = useState(false);
   const [chordText, setChordText] = useState("");
   const [chord, setChord] = useState<UiChord>({ data: null, source: "none" });
   const hasAutoEnabledInKey = useRef(false);
@@ -43,7 +41,6 @@ export default function Home() {
       return;
     }
     if (!hasAutoEnabledInKey.current) {
-      setShowOnlyKey(true);
       hasAutoEnabledInKey.current = true;
     }
   }, [selectedKeyLabel]);
@@ -74,8 +71,9 @@ export default function Home() {
       setChord({ data: null, source: "none" });
       return;
     }
-    const local = parseChordLocally(trimmed);
-    setChord({ data: local, source: "loading" });
+    // Mutually exclusive mode: chord mode clears key mode.
+    setSelectedKeyLabel(null);
+    setChord({ data: null, source: "loading" });
     try {
       const res = await fetch("/api/chord", {
         method: "POST",
@@ -85,7 +83,7 @@ export default function Home() {
       if (!res.ok) {
         const body = await res.json();
         setChord({
-          data: local,
+          data: null,
           source: "error",
           message: body?.error ?? "Could not parse chord",
         });
@@ -95,9 +93,12 @@ export default function Home() {
       setChord({ data, source: "success" });
     } catch (error) {
       console.error(error);
-      setChord({ data: local, source: "error", message: "Network or LLM error" });
+      setChord({ data: null, source: "error", message: "Network or LLM error" });
     }
   }
+
+  type DisplayMode = "all" | "key" | "chord";
+  const mode: DisplayMode = chord.data ? "chord" : selectedKey ? "key" : "all";
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
@@ -191,7 +192,15 @@ export default function Home() {
               Key (major / minor)
               <select
                 value={selectedKeyLabel ?? ""}
-                onChange={(e) => setSelectedKeyLabel(e.target.value || null)}
+                onChange={(e) => {
+                  const next = e.target.value || null;
+                  setSelectedKeyLabel(next);
+                  // Mutually exclusive mode: key mode clears chord mode.
+                  if (next) {
+                    setChord({ data: null, source: "none" });
+                    setChordText("");
+                  }
+                }}
                 className="rounded border border-slate-200 px-3 py-2 text-sm"
               >
                 <option value="">None</option>
@@ -201,16 +210,6 @@ export default function Home() {
                   </option>
                 ))}
               </select>
-            </label>
-
-            <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input
-                type="checkbox"
-                checked={showOnlyKey}
-                onChange={(e) => setShowOnlyKey(e.target.checked)}
-                disabled={!selectedKey}
-              />
-              Show only in-key 
             </label>
 
             <div className="space-y-2">
@@ -243,16 +242,6 @@ export default function Home() {
                   {chord.data.source})
                 </div>
               )}
-
-              <label className="flex items-center gap-2 pt-1 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={showOnlyChordTones}
-                  onChange={(e) => setShowOnlyChordTones(e.target.checked)}
-                  disabled={!chord.data}
-                />
-                Show only chord tones
-              </label>
             </div>
 
             <Legend />
@@ -264,8 +253,7 @@ export default function Home() {
             strings={tuningResult.strings}
             harmonics={harmonics}
             fretMarkers={fretMarkers}
-            showOnlyKey={showOnlyKey}
-            showOnlyChordTones={showOnlyChordTones}
+            mode={mode}
             keyLabel={selectedKey?.label}
             chord={chord.data}
           />
@@ -298,8 +286,7 @@ type FretboardProps = {
   strings: ReturnType<typeof buildTuning>["strings"];
   harmonics: EnrichedHarmonic[];
   fretMarkers: number[];
-  showOnlyKey: boolean;
-  showOnlyChordTones: boolean;
+  mode: "all" | "key" | "chord";
   keyLabel?: string;
   chord?: ParsedChord | null;
 };
@@ -308,16 +295,15 @@ function Fretboard({
   strings,
   harmonics,
   fretMarkers,
-  showOnlyKey,
-  showOnlyChordTones,
+  mode,
   keyLabel,
   chord,
 }: FretboardProps) {
   const visible = useMemo(() => {
-    if (showOnlyChordTones) return harmonics.filter((h) => h.inChord);
-    if (!showOnlyKey) return harmonics;
-    return harmonics.filter((h) => h.isInKey || h.inChord);
-  }, [harmonics, showOnlyChordTones, showOnlyKey]);
+    if (mode === "chord") return harmonics.filter((h) => h.inChord);
+    if (mode === "key") return harmonics.filter((h) => h.isInKey);
+    return harmonics;
+  }, [harmonics, mode]);
 
   const FRET_COUNT = 24;
   const BOARD_WIDTH_PX = 1200;

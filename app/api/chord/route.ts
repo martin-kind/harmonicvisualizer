@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { parseChordLocally, ParsedChord } from "@/lib/music/chords";
+import { ParsedChord } from "@/lib/music/chords";
 import { PitchClass, pitchClassToName, parseNote } from "@/lib/music/notes";
 
 type LlmChord = {
@@ -93,7 +93,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Chord is required" }, { status: 400 });
   }
 
-  const local = parseChordLocally(chord);
   let llm: ParsedChord | null = null;
 
   try {
@@ -107,10 +106,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ...llm, source: "llm" } satisfies ParsedChord);
   }
 
-  if (local) {
-    return NextResponse.json({ ...local, source: "local" } satisfies ParsedChord);
-  }
-
-  return NextResponse.json({ error: "Unable to parse chord", fallback: false }, { status: 422 });
+  return NextResponse.json({ error: "Unable to parse chord" }, { status: 422 });
 }
 
