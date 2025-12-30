@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { TuningPreset, buildTuning } from "@/lib/music/tunings";
-import { buildFretboardHarmonics, EnrichedHarmonic } from "@/lib/music/fretboard";
+import { buildFretboardHarmonics, buildFretboardNotes, FretboardMarker } from "@/lib/music/fretboard";
 import { ParsedChord } from "@/lib/music/chords";
 import { parseNote, PitchClass, pitchClassToName } from "@/lib/music/notes";
 
@@ -35,6 +35,9 @@ const tuningPresetOptions: { id: TuningPreset; label: string; description: strin
 ];
 
 export default function Home() {
+  const TUNING_STORAGE_KEY = "harmonic-finder:tuning:v1";
+
+  const [topMode, setTopMode] = useState<"harmonics" | "notes">("harmonics");
   const [stringCount, setStringCount] = useState(6);
   const [preset, setPreset] = useState<TuningPreset>("standard");
   const [customInputs, setCustomInputs] = useState<string[]>(Array(8).fill(""));
@@ -48,6 +51,64 @@ export default function Home() {
   const hasAutoEnabledInKey = useRef(false);
   const [labelMode, setLabelMode] = useState<"notes" | "degrees">("notes");
   const [showOtherHarmonics, setShowOtherHarmonics] = useState(false);
+
+  // Load saved tuning on first mount
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(TUNING_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== "object") return;
+      const obj = parsed as {
+        stringCount?: unknown;
+        preset?: unknown;
+        customInputs?: unknown;
+      };
+
+      const nextStringCount =
+        typeof obj.stringCount === "number" && Number.isFinite(obj.stringCount)
+          ? Math.min(8, Math.max(4, Math.round(obj.stringCount)))
+          : null;
+
+      const nextPreset =
+        obj.preset === "standard" || obj.preset === "fourths" || obj.preset === "custom"
+          ? (obj.preset as TuningPreset)
+          : null;
+
+      const nextCustomInputs = Array.isArray(obj.customInputs)
+        ? obj.customInputs.map((v) => (typeof v === "string" ? v : "")).slice(0, 8)
+        : null;
+
+      if (nextStringCount !== null) setStringCount(nextStringCount);
+      if (nextPreset !== null) setPreset(nextPreset);
+      if (nextCustomInputs !== null) {
+        setCustomInputs((prev) => {
+          const base = [...prev];
+          for (let i = 0; i < 8; i += 1) base[i] = nextCustomInputs[i] ?? "";
+          return base;
+        });
+      }
+    } catch {
+      // ignore corrupted localStorage
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Persist tuning whenever it changes
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        TUNING_STORAGE_KEY,
+        JSON.stringify({
+          stringCount,
+          preset,
+          customInputs,
+        }),
+      );
+    } catch {
+      // ignore quota/security errors
+    }
+  }, [TUNING_STORAGE_KEY, customInputs, preset, stringCount]);
 
   useEffect(() => {
     if (!hasAutoEnabledInKey.current) {
@@ -65,19 +126,20 @@ export default function Home() {
     [preset, stringCount, customInputs],
   );
 
-  const harmonics: EnrichedHarmonic[] = useMemo(() => {
-    return buildFretboardHarmonics({
-      tuning: tuningResult.strings,
-      key:
-        activeTab === "scale" && scale.data
-          ? {
-              root: scale.data.rootPitchClass,
-              scale: scale.data.pitchClasses,
-            }
-          : null,
-      chord: activeTab === "chord" ? chord.data : null,
-    });
-  }, [tuningResult.strings, activeTab, chord.data, scale.data]);
+  const markers: FretboardMarker[] = useMemo(() => {
+    const keySig =
+      activeTab === "scale" && scale.data
+        ? {
+            root: scale.data.rootPitchClass,
+            scale: scale.data.pitchClasses,
+          }
+        : null;
+    const chordSig = activeTab === "chord" ? chord.data : null;
+
+    return topMode === "notes"
+      ? buildFretboardNotes({ tuning: tuningResult.strings, key: keySig, chord: chordSig, fretCount: 24 })
+      : buildFretboardHarmonics({ tuning: tuningResult.strings, key: keySig, chord: chordSig });
+  }, [tuningResult.strings, activeTab, chord.data, scale.data, topMode]);
 
   const fretMarkers = useMemo(() => Array.from({ length: 25 }, (_, i) => i), []);
 
@@ -163,6 +225,31 @@ export default function Home() {
     <div className="min-h-screen bg-slate-50 text-slate-900">
       <div className="px-6 py-10">
         <div className="mx-auto flex max-w-6xl flex-col gap-8">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setTopMode("harmonics")}
+              className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
+                topMode === "harmonics"
+                  ? "border-blue-500 bg-blue-50 text-blue-700"
+                  : "border-slate-200 bg-slate-50 text-slate-700"
+              }`}
+            >
+              Harmonics
+            </button>
+            <button
+              type="button"
+              onClick={() => setTopMode("notes")}
+              className={`flex-1 rounded-lg border px-3 py-2 text-sm font-medium ${
+                topMode === "notes"
+                  ? "border-blue-500 bg-blue-50 text-blue-700"
+                  : "border-slate-200 bg-slate-50 text-slate-700"
+              }`}
+            >
+              Fretted Notes
+            </button>
+          </div>
+
           <header className="flex flex-col gap-2">
             <h1 className="text-3xl font-semibold tracking-tight">Guitar Harmonic Finder</h1>
             <p className="text-sm text-slate-600">
@@ -423,11 +510,12 @@ export default function Home() {
         <section className="mt-8 rounded-xl bg-white p-4 shadow-sm">
           <Fretboard
             strings={tuningResult.strings}
-            harmonics={harmonics}
+            markers={markers}
             fretMarkers={fretMarkers}
             mode={mode}
             labelMode={labelMode}
             showOtherHarmonics={showOtherHarmonics}
+            markerLayout={topMode}
             keySignature={
               scale.data
                 ? {
@@ -468,11 +556,12 @@ function Legend() {
 
 type FretboardProps = {
   strings: ReturnType<typeof buildTuning>["strings"];
-  harmonics: EnrichedHarmonic[];
+  markers: FretboardMarker[];
   fretMarkers: number[];
   mode: "all" | "key" | "chord";
   labelMode: "notes" | "degrees";
   showOtherHarmonics: boolean;
+  markerLayout: "harmonics" | "notes";
   keySignature?: { root: PitchClass; scale: PitchClass[] } | null;
   keyLabel?: string;
   chord?: ParsedChord | null;
@@ -482,11 +571,12 @@ type FretboardProps = {
 
 function Fretboard({
   strings,
-  harmonics,
+  markers,
   fretMarkers,
   mode,
   labelMode,
   showOtherHarmonics,
+  markerLayout,
   keySignature,
   keyLabel,
   chord,
@@ -494,11 +584,26 @@ function Fretboard({
   scaleDegreeMap,
 }: FretboardProps) {
   const visible = useMemo(() => {
-    if (showOtherHarmonics) return harmonics;
-    if (mode === "chord") return harmonics.filter((h) => h.inChord);
-    if (mode === "key") return harmonics.filter((h) => h.isInKey);
-    return harmonics;
-  }, [harmonics, mode, showOtherHarmonics]);
+    if (showOtherHarmonics) return markers;
+    if (mode === "chord") return markers.filter((h) => h.inChord);
+    if (mode === "key") return markers.filter((h) => h.isInKey);
+    return markers;
+  }, [markers, mode, showOtherHarmonics]);
+
+  const visibleBoardMarkers = useMemo(() => {
+    if (markerLayout !== "notes") return visible;
+    // Open strings (fret 0) are rendered in the sticky label gutter instead.
+    return visible.filter((m) => m.fret !== 0);
+  }, [markerLayout, visible]);
+
+  const openStringMarkersByStringIndex = useMemo(() => {
+    if (markerLayout !== "notes") return new Map<number, FretboardMarker>();
+    const map = new Map<number, FretboardMarker>();
+    for (const m of visible) {
+      if (m.fret === 0) map.set(m.stringIndex, m);
+    }
+    return map;
+  }, [markerLayout, visible]);
 
   function keyDegreeForPitchClass(pc: number): string | null {
     if (scaleDegreeMap?.[String(pc)] !== undefined) return scaleDegreeMap[String(pc)];
@@ -530,7 +635,7 @@ function Fretboard({
     return map[interval] ?? null;
   }
 
-  function markerText(h: EnrichedHarmonic): string {
+  function markerText(h: FretboardMarker): string {
     if (labelMode === "notes") return noteNameMap?.[String(h.pitchClass)] ?? h.label;
     if (mode === "key") return keyDegreeForPitchClass(h.pitchClass) ?? h.label;
     if (mode === "chord") return chordDegreeForPitchClass(h.pitchClass) ?? h.label;
@@ -539,6 +644,19 @@ function Fretboard({
 
   function isChordRoot(pc: number): boolean {
     return !!chord && pc === chord.root.pitchClass;
+  }
+
+  function markerColor(h: FretboardMarker): string {
+    const chordRoot = mode === "chord" && isChordRoot(h.pitchClass);
+    const keyRoot = mode === "key" && h.isRoot;
+    const isRoot = chordRoot || keyRoot;
+    return isRoot
+      ? "bg-blue-500"
+      : h.inChord
+        ? "bg-purple-500"
+        : h.isInKey
+          ? "bg-emerald-500"
+          : "bg-slate-300";
   }
 
   const FRET_COUNT = 24;
@@ -560,6 +678,16 @@ function Fretboard({
     return `${value.toFixed(4)}%`;
   }
 
+  function markerXPercent(fret: number) {
+    if (markerLayout !== "notes") return fretToXPercent(fret);
+    // Fretted note "fret N" belongs to the space between fret (N-1) and fret N.
+    // Example: F on the low E string is fret 1 (between nut=0 and fret 1), not fret 2.
+    if (fret <= 0) return fretToXPercent(0);
+    const left = fretToXPercent(fret - 1);
+    const right = fretToXPercent(fret);
+    return (left + right) / 2;
+  }
+
   const displayStrings = useMemo(() => [...strings].reverse(), [strings]);
 
   return (
@@ -578,15 +706,25 @@ function Fretboard({
             <div className="sticky left-0 z-30 w-20 border-r border-slate-200 bg-white/90 backdrop-blur">
               {displayStrings.map((string, displayIdx) => {
                 const stringNumber = displayIdx + 1; // guitarist diagram: 1 is highest string
+                const originalStringIndex = strings.length - 1 - displayIdx;
+                const openMarker = openStringMarkersByStringIndex.get(originalStringIndex);
                 return (
                   <div
                     key={`label-${string.label}-${displayIdx}`}
                     className="flex items-center justify-end pr-2 text-xs font-semibold text-slate-700"
                     style={{ height: ROW_HEIGHT_PX }}
                   >
-                    <span className="whitespace-nowrap">
-                      {stringNumber} {string.label}
-                    </span>
+                    {markerLayout === "notes" && openMarker && (
+                      <span
+                        className={`relative z-50 mr-2 flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold text-white shadow ${markerColor(
+                          openMarker,
+                        )}`}
+                        title={`Open • ${openMarker.label}`}
+                      >
+                        {markerText(openMarker)}
+                      </span>
+                    )}
+                    <span className="whitespace-nowrap">{stringNumber} {string.label}</span>
                   </div>
                 );
               })}
@@ -656,33 +794,31 @@ function Fretboard({
               })}
 
               {/* Harmonic markers */}
-              {visible.map((h) => {
+              {visibleBoardMarkers.map((h) => {
                 const displayIdx = strings.length - 1 - h.stringIndex; // flip so low strings are on bottom
                 const y = displayIdx * ROW_HEIGHT_PX + ROW_HEIGHT_PX / 2;
-                const chordRoot = mode === "chord" && isChordRoot(h.pitchClass);
-                const keyRoot = mode === "key" && h.isRoot;
-                const isRoot = chordRoot || keyRoot;
+                const compactHighFrets = markerLayout === "notes" && h.fret > 18;
                 return (
                   <div
                     key={`${h.stringIndex}-${h.fret}-${h.label}`}
                     className="absolute"
                     style={{
-                      left: pct(fretToXPercent(h.fret)),
+                      left: pct(markerXPercent(h.fret)),
                       top: `${y}px`,
                       transform: "translate(-50%, -50%)",
                     }}
                   >
                     <span
-                      className={`flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold text-white shadow ${
-                        isRoot
-                          ? "bg-blue-500"
-                          : h.inChord
-                            ? "bg-purple-500"
-                            : h.isInKey
-                              ? "bg-emerald-500"
-                                : "bg-slate-300"
-                      }`}
-                      title={`Fret ~${h.fret.toFixed(1)} • ${h.label} • Partial ${h.partial}`}
+                      className={`flex items-center justify-center font-semibold text-white shadow ${
+                        compactHighFrets ? "h-7 w-6 rounded-full text-[10px]" : "h-8 w-8 rounded-full text-[11px]"
+                      } ${markerColor(
+                        h,
+                      )}`}
+                      title={
+                        markerLayout === "notes"
+                          ? `Fret ${h.fret} • ${h.label}`
+                          : `Fret ~${h.fret.toFixed(1)} • ${h.label} • Partial ${h.partial ?? "?"}`
+                      }
                     >
                       {markerText(h)}
                     </span>
