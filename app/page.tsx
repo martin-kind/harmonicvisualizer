@@ -18,6 +18,7 @@ type ParsedScale = {
   rootPitchClass: PitchClass;
   noteNames: string[];
   pitchClasses: PitchClass[];
+  degreeMap?: Record<string, string>;
   source: "llm";
 };
 
@@ -438,6 +439,7 @@ export default function Home() {
             keyLabel={scale.data?.label}
             chord={chord.data}
             noteNameMap={noteNameMap}
+            scaleDegreeMap={scale.data?.degreeMap ?? null}
           />
         </section>
       </div>
@@ -475,6 +477,7 @@ type FretboardProps = {
   keyLabel?: string;
   chord?: ParsedChord | null;
   noteNameMap?: Record<string, string> | null;
+  scaleDegreeMap?: Record<string, string> | null;
 };
 
 function Fretboard({
@@ -488,6 +491,7 @@ function Fretboard({
   keyLabel,
   chord,
   noteNameMap,
+  scaleDegreeMap,
 }: FretboardProps) {
   const visible = useMemo(() => {
     if (showOtherHarmonics) return harmonics;
@@ -497,6 +501,7 @@ function Fretboard({
   }, [harmonics, mode, showOtherHarmonics]);
 
   function keyDegreeForPitchClass(pc: number): string | null {
+    if (scaleDegreeMap?.[String(pc)] !== undefined) return scaleDegreeMap[String(pc)];
     if (!keySignature) return null;
     const idx = keySignature.scale.findIndex((s) => s === (((pc % 12) + 12) % 12));
     if (idx < 0) return null;

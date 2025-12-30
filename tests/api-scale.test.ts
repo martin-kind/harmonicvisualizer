@@ -9,7 +9,15 @@ const mockLlmResponse = {
         content: JSON.stringify({
           label: "Gb mixolydian",
           root: "Gb",
-          notes: ["Gb", "Ab", "Bb", "Cb", "Db", "Eb", "Fb"],
+          tones: [
+            { note: "Gb", degree: "1" },
+            { note: "Ab", degree: "2" },
+            { note: "Bb", degree: "3" },
+            { note: "Cb", degree: "4" },
+            { note: "Db", degree: "5" },
+            { note: "Eb", degree: "6" },
+            { note: "Fb", degree: "b7" },
+          ],
         }),
       },
     },

@@ -4,7 +4,7 @@ import { PitchClass, parseNote } from "@/lib/music/notes";
 type LlmScale = {
   label: string;
   root: string;
-  notes: string[];
+  tones: { note: string; degree: string }[];
 };
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
@@ -17,7 +17,7 @@ function safeParse(content: string): LlmScale | null {
       value &&
       typeof value.label === "string" &&
       typeof value.root === "string" &&
-      Array.isArray(value.notes)
+      Array.isArray(value.tones)
     ) {
       return value as LlmScale;
     }
@@ -32,13 +32,16 @@ async function callLlm(scaleText: string) {
   if (!apiKey) return null;
 
   const system =
-    "You are a music theory assistant. Convert a key/scale description into an ordered list of pitch-class note names using correct enharmonic spellings. Return only JSON.";
+    "You are a music theory assistant. Convert a key/scale description into scale tones with correct enharmonic spellings and explicit degree labels. Return only JSON.";
   const user =
     `Scale: ${scaleText}\n` +
     `Return JSON with:\n` +
     `- label: a nice display label (e.g. "Gb mixolydian")\n` +
     `- root: root note name (e.g. "Gb")\n` +
-    `- notes: ordered array of scale note names as pitch classes only (no octaves), using correct enharmonics for the scale.\n`;
+    `- tones: ordered array of { note, degree }\n` +
+    `  - note: pitch-class note name (no octaves), using correct enharmonics for the scale.\n` +
+    `  - degree: scale degree label relative to the root, using 1–7 with optional accidentals (e.g. b3, #4, b5).\n` +
+    `    Use chromatic degrees for passing tones if requested.\n`;
 
   const body = {
     model: OPENAI_MODEL,
@@ -55,13 +58,21 @@ async function callLlm(scaleText: string) {
           properties: {
             label: { type: "string" },
             root: { type: "string" },
-            notes: {
+            tones: {
               type: "array",
-              items: { type: "string" },
               minItems: 2,
+              items: {
+                type: "object",
+                properties: {
+                  note: { type: "string" },
+                  degree: { type: "string" },
+                },
+                required: ["note", "degree"],
+                additionalProperties: false,
+              },
             },
           },
-          required: ["label", "root", "notes"],
+          required: ["label", "root", "tones"],
           additionalProperties: false,
         },
         strict: true,
@@ -89,8 +100,8 @@ async function callLlm(scaleText: string) {
   const root = parseNote(parsed.root);
   if (!root) return null;
 
-  const noteNames = parsed.notes
-    .map((n) => parseNote(n)?.name)
+  const noteNames = parsed.tones
+    .map((t) => parseNote(t.note)?.name)
     .filter((name): name is string => !!name);
 
   const pitchClasses = noteNames
@@ -99,12 +110,22 @@ async function callLlm(scaleText: string) {
 
   if (!pitchClasses.length) return null;
 
+  const degreeMap: Record<string, string> = {};
+  for (const t of parsed.tones) {
+    const n = parseNote(t.note);
+    if (!n) continue;
+    const key = String(n.pitchClass);
+    if (!degreeMap[key]) degreeMap[key] = t.degree;
+  }
+  degreeMap[String(root.pitchClass)] = "1";
+
   return {
     label: parsed.label,
     rootName: root.name,
     rootPitchClass: root.pitchClass as PitchClass,
     noteNames,
     pitchClasses,
+    degreeMap,
     source: "llm" as const,
   };
 }
