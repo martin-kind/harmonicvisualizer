@@ -342,11 +342,19 @@ export default function Home() {
           </div>
 
           <header className="flex flex-col gap-2">
-            <h1 className="text-3xl font-semibold tracking-tight">Guitar Harmonic Finder</h1>
-            <p className="text-sm text-slate-600">
-              Configure your guitar, view natural harmonics from frets 0–24, and highlight notes that
-              fit a key or chord.
-            </p>
+            <h1 className="text-3xl font-semibold tracking-tight">
+              {topMode === "notes" ? "Fretted Note Finder" : "Guitar Harmonic Finder"}
+            </h1>
+            {topMode === "notes" ? (
+              <p className="text-sm text-slate-600">
+                View fretted notes across frets 0–24 and highlight tones that fit a scale/key or chord.
+              </p>
+            ) : (
+              <p className="text-sm text-slate-600">
+                Configure your guitar, view natural harmonics from frets 0–24, and highlight notes that
+                fit a key or chord.
+              </p>
+            )}
           </header>
 
           <section className="grid gap-4 rounded-xl bg-white p-4 shadow-sm sm:grid-cols-2">
@@ -636,9 +644,13 @@ export default function Home() {
                   checked={showOtherHarmonics}
                   onChange={(e) => setShowOtherHarmonics(e.target.checked)}
                 />
-                {mode === "key"
-                  ? "Show non-scale/key harmonics"
-                  : "Show non-chord-tone harmonics"}
+                {topMode === "notes"
+                  ? mode === "key"
+                    ? "Show non-scale/key notes"
+                    : "Show non-chord-tone notes"
+                  : mode === "key"
+                    ? "Show non-scale/key harmonics"
+                    : "Show non-chord-tone harmonics"}
               </label>
             )}
 
@@ -829,6 +841,17 @@ function Fretboard({
     return (left + right) / 2;
   }
 
+  function noteMarkerWidthPx(fret: number) {
+    // As frets get tighter up the neck, progressively narrow markers from fret 13 onwards.
+    // Keep height constant.
+    const max = 32; // matches h-8
+    const min = 22;
+    // Start narrowing at fret 12.
+    if (fret <= 11) return max;
+    const t = Math.min(1, Math.max(0, (fret - 12) / (24 - 12))); // 0..1 for frets 12..24
+    return Math.round(max - t * (max - min));
+  }
+
   const displayStrings = useMemo(() => [...strings].reverse(), [strings]);
 
   return (
@@ -938,7 +961,7 @@ function Fretboard({
               {visibleBoardMarkers.map((h) => {
                 const displayIdx = strings.length - 1 - h.stringIndex; // flip so low strings are on bottom
                 const y = displayIdx * ROW_HEIGHT_PX + ROW_HEIGHT_PX / 2;
-                const compactHighFrets = markerLayout === "notes" && h.fret > 18;
+                const isNotes = markerLayout === "notes";
                 return (
                   <div
                     key={`${h.stringIndex}-${h.fret}-${h.label}`}
@@ -950,11 +973,10 @@ function Fretboard({
                     }}
                   >
                     <span
-                      className={`flex items-center justify-center font-semibold text-white shadow ${
-                        compactHighFrets ? "h-7 w-6 rounded-full text-[10px]" : "h-8 w-8 rounded-full text-[11px]"
-                      } ${markerColor(
-                        h,
-                      )}`}
+                      className={`flex h-8 items-center justify-center rounded-full text-[11px] font-semibold text-white shadow ${
+                        isNotes ? "" : "w-8"
+                      } ${markerColor(h)}`}
+                      style={isNotes ? { width: `${noteMarkerWidthPx(h.fret)}px` } : undefined}
                       title={
                         markerLayout === "notes"
                           ? `Fret ${h.fret} • ${h.label}`
