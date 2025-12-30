@@ -14,6 +14,21 @@ pnpm dev
 bun dev
 ```
 
+## Configuration (env vars)
+
+This app reads these environment variables:
+
+- **`OPENAI_API_KEY`**: required (used by `app/api/chord/route.ts`)
+- **`OPENAI_MODEL`**: optional (defaults to `gpt-4o-mini`)
+
+For local development:
+
+```bash
+cp env.example .env.local
+```
+
+Then edit `.env.local` and set your values.
+
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
