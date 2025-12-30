@@ -29,6 +29,7 @@ export default function Home() {
   const [chordText, setChordText] = useState("");
   const [chord, setChord] = useState<UiChord>({ data: null, source: "none" });
   const hasAutoEnabledInKey = useRef(false);
+  const [labelMode, setLabelMode] = useState<"notes" | "degrees">("notes");
 
   const selectedKey: KeySignature | null = useMemo(() => {
     if (!selectedKeyLabel) return null;
@@ -244,6 +245,44 @@ export default function Home() {
               )}
             </div>
 
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-slate-700">Labels</p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setLabelMode("notes")}
+                  className={`rounded-full border px-3 py-1 text-sm ${
+                    labelMode === "notes"
+                      ? "border-blue-500 bg-blue-50 text-blue-700"
+                      : "border-slate-200 bg-slate-50 text-slate-700"
+                  }`}
+                >
+                  Notes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLabelMode("degrees")}
+                  disabled={mode === "all"}
+                  className={`rounded-full border px-3 py-1 text-sm ${
+                    mode === "all"
+                      ? "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
+                      : labelMode === "degrees"
+                        ? "border-blue-500 bg-blue-50 text-blue-700"
+                        : "border-slate-200 bg-slate-50 text-slate-700"
+                  }`}
+                  title={mode === "all" ? "Select a key or analyze a chord to see degrees." : undefined}
+                >
+                  Degrees
+                </button>
+              </div>
+              {labelMode === "degrees" && mode === "key" && (
+                <p className="text-xs text-slate-500">Showing scale degrees (1–7) for the selected key.</p>
+              )}
+              {labelMode === "degrees" && mode === "chord" && (
+                <p className="text-xs text-slate-500">Showing chord degrees relative to the chord root.</p>
+              )}
+            </div>
+
             <Legend />
           </div>
         </section>
@@ -254,6 +293,8 @@ export default function Home() {
             harmonics={harmonics}
             fretMarkers={fretMarkers}
             mode={mode}
+            labelMode={labelMode}
+            keySignature={selectedKey}
             keyLabel={selectedKey?.label}
             chord={chord.data}
           />
@@ -287,6 +328,8 @@ type FretboardProps = {
   harmonics: EnrichedHarmonic[];
   fretMarkers: number[];
   mode: "all" | "key" | "chord";
+  labelMode: "notes" | "degrees";
+  keySignature?: KeySignature | null;
   keyLabel?: string;
   chord?: ParsedChord | null;
 };
@@ -296,6 +339,8 @@ function Fretboard({
   harmonics,
   fretMarkers,
   mode,
+  labelMode,
+  keySignature,
   keyLabel,
   chord,
 }: FretboardProps) {
@@ -304,6 +349,45 @@ function Fretboard({
     if (mode === "key") return harmonics.filter((h) => h.isInKey);
     return harmonics;
   }, [harmonics, mode]);
+
+  function keyDegreeForPitchClass(pc: number): string | null {
+    if (!keySignature) return null;
+    const idx = keySignature.scale.findIndex((s) => s === (((pc % 12) + 12) % 12));
+    if (idx < 0) return null;
+    return String(idx + 1);
+  }
+
+  function chordDegreeForPitchClass(pc: number): string | null {
+    if (!chord) return null;
+    const rootPc = chord.root.pitchClass;
+    const interval = (((pc - rootPc) % 12) + 12) % 12;
+    const map: Record<number, string> = {
+      0: "1",
+      1: "b2",
+      2: "2",
+      3: "b3",
+      4: "3",
+      5: "4",
+      6: "b5",
+      7: "5",
+      8: "#5",
+      9: "6",
+      10: "b7",
+      11: "7",
+    };
+    return map[interval] ?? null;
+  }
+
+  function markerText(h: EnrichedHarmonic): string {
+    if (labelMode === "notes") return h.label;
+    if (mode === "key") return keyDegreeForPitchClass(h.pitchClass) ?? h.label;
+    if (mode === "chord") return chordDegreeForPitchClass(h.pitchClass) ?? h.label;
+    return h.label;
+  }
+
+  function isChordRoot(pc: number): boolean {
+    return !!chord && pc === chord.root.pitchClass;
+  }
 
   const FRET_COUNT = 24;
   const BOARD_WIDTH_PX = 1200;
@@ -423,6 +507,9 @@ function Fretboard({
               {visible.map((h) => {
                 const displayIdx = strings.length - 1 - h.stringIndex; // flip so low strings are on bottom
                 const y = displayIdx * ROW_HEIGHT_PX + ROW_HEIGHT_PX / 2;
+                const chordRoot = mode === "chord" && isChordRoot(h.pitchClass);
+                const keyRoot = mode === "key" && h.isRoot;
+                const isRoot = chordRoot || keyRoot;
                 return (
                   <div
                     key={`${h.stringIndex}-${h.fret}-${h.label}`}
@@ -435,17 +522,17 @@ function Fretboard({
                   >
                     <span
                       className={`flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold text-white shadow ${
-                        h.inChord
-                          ? "bg-purple-500"
-                          : h.isRoot
-                            ? "bg-blue-500"
+                        isRoot
+                          ? "bg-blue-500"
+                          : h.inChord
+                            ? "bg-purple-500"
                             : h.isInKey
                               ? "bg-emerald-500"
                               : "bg-slate-400"
                       }`}
                       title={`Fret ~${h.fret.toFixed(1)} • ${h.label} • Partial ${h.partial}`}
                     >
-                      {h.label}
+                      {markerText(h)}
                     </span>
                   </div>
                 );
