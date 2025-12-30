@@ -219,12 +219,12 @@ export default function Home() {
   const fretMarkers = useMemo(() => Array.from({ length: 25 }, (_, i) => i), []);
 
   async function analyzeChord() {
-    const trimmed = chordText.trim();
-    if (!trimmed) {
+    const normalized = chordText.trim().replace(/\s+/g, " ");
+    if (!normalized) {
       setChord({ data: null, source: "none" });
       return;
     }
-    const cached = getCachedChord(trimmed);
+    const cached = getCachedChord(normalized);
     if (cached) {
       setScale({ data: null, source: "none" });
       setScaleText("");
@@ -238,7 +238,7 @@ export default function Home() {
       const res = await fetch("/api/chord", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chord: trimmed }),
+        body: JSON.stringify({ chord: normalized }),
       });
       if (!res.ok) {
         const body = await res.json();
@@ -251,7 +251,7 @@ export default function Home() {
       }
       const data = (await res.json()) as ParsedChord;
       setChord({ data, source: "success" });
-      upsertChordHistory(trimmed, data);
+      upsertChordHistory(normalized, data);
     } catch (error) {
       console.error(error);
       setChord({ data: null, source: "error", message: "Network or LLM error" });
@@ -259,12 +259,12 @@ export default function Home() {
   }
 
   async function analyzeScale() {
-    const trimmed = scaleText.trim();
-    if (!trimmed) {
+    const normalized = scaleText.trim().replace(/\s+/g, " ");
+    if (!normalized) {
       setScale({ data: null, source: "none" });
       return;
     }
-    const cached = getCachedScale(trimmed);
+    const cached = getCachedScale(normalized);
     if (cached) {
       setChord({ data: null, source: "none" });
       setChordText("");
@@ -278,7 +278,7 @@ export default function Home() {
       const res = await fetch("/api/scale", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scale: trimmed }),
+        body: JSON.stringify({ scale: normalized }),
       });
       if (!res.ok) {
         const body = await res.json();
@@ -287,7 +287,7 @@ export default function Home() {
       }
       const data = (await res.json()) as ParsedScale;
       setScale({ data, source: "success" });
-      upsertScaleHistory(trimmed, data);
+      upsertScaleHistory(normalized, data);
     } catch (error) {
       console.error(error);
       setScale({ data: null, source: "error", message: "Network or LLM error" });

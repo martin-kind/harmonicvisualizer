@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ParsedChord } from "@/lib/music/chords";
 import { PitchClass, pitchClassToName, parseNote } from "@/lib/music/notes";
+import { cacheGet, cacheSet, makeCachePrompt, normalizePromptInput } from "@/lib/supabase/cache";
 
 type LlmChord = {
   root: string;
@@ -9,6 +10,7 @@ type LlmChord = {
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+const LOG_TIMINGS = process.env.LOG_TIMINGS === "1";
 
 async function callLlm(chordText: string): Promise<ParsedChord | null> {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -120,24 +122,93 @@ function safeParse(content: string): LlmChord | null {
 }
 
 export async function POST(req: NextRequest) {
+  const t0 = Date.now();
   const { chord } = (await req.json()) as { chord?: string };
   if (!chord || typeof chord !== "string") {
     return NextResponse.json({ error: "Chord is required" }, { status: 400 });
+  }
+  const normalizedChord = normalizePromptInput(chord);
+
+  // Cross-user cache (Supabase) keyed by (schema version, model, input)
+  const cachePrompt = makeCachePrompt("chord", OPENAI_MODEL, normalizedChord);
+  const tCacheGet0 = Date.now();
+  const cached = await cacheGet(cachePrompt);
+  const cacheGetMs = Date.now() - tCacheGet0;
+  if (cached && typeof cached === "object") {
+    if (LOG_TIMINGS) {
+      console.info("[timing] api/chord", {
+        cache: "HIT",
+        cacheGetMs,
+        totalMs: Date.now() - t0,
+      });
+    }
+    return NextResponse.json(cached, { headers: { "x-cache": "HIT", "x-cache-key": cachePrompt } });
   }
 
   let llm: ParsedChord | null = null;
 
   try {
-    llm = await callLlm(chord);
+    const tLlm0 = Date.now();
+    llm = await callLlm(normalizedChord);
+    if (LOG_TIMINGS) {
+      console.info("[timing] api/chord", {
+        cache: "MISS",
+        cacheGetMs,
+        openaiMs: Date.now() - tLlm0,
+      });
+    }
   } catch (error) {
     console.error("LLM error", error);
   }
 
   if (llm) {
     // Ensure the response always includes a stable `source` field.
-    return NextResponse.json({ ...llm, source: "llm" } satisfies ParsedChord);
+    const payload = { ...llm, source: "llm" } satisfies ParsedChord;
+    const tCacheSet0 = Date.now();
+    const write = await cacheSet(cachePrompt, payload);
+    const cacheSetMs = Date.now() - tCacheSet0;
+    if (!write.ok) {
+      console.warn("[cache] chord write failed:", write.error);
+      if (LOG_TIMINGS) {
+        console.info("[timing] api/chord", {
+          cache: "MISS",
+          cacheGetMs,
+          cacheSetMs,
+          cacheWrite: "ERR",
+          totalMs: Date.now() - t0,
+        });
+      }
+      return NextResponse.json(payload, {
+        headers: {
+          "x-cache": "MISS",
+          "x-cache-key": cachePrompt,
+          "x-cache-write": "ERR",
+          "x-cache-write-error": write.error,
+        },
+      });
+    }
+    if (LOG_TIMINGS) {
+      console.info("[timing] api/chord", {
+        cache: "MISS",
+        cacheGetMs,
+        cacheSetMs,
+        cacheWrite: "OK",
+        totalMs: Date.now() - t0,
+      });
+    }
+    return NextResponse.json(payload, {
+      headers: { "x-cache": "MISS", "x-cache-key": cachePrompt, "x-cache-write": "OK" },
+    });
   }
 
+  if (LOG_TIMINGS) {
+    console.info("[timing] api/chord", {
+      cache: "MISS",
+      cacheGetMs,
+      totalMs: Date.now() - t0,
+      result: "no-parse",
+    });
+  }
   return NextResponse.json({ error: "Unable to parse chord" }, { status: 422 });
 }
 

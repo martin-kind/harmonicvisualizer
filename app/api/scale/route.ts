@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PitchClass, parseNote } from "@/lib/music/notes";
+import { cacheGet, cacheSet, makeCachePrompt, normalizePromptInput } from "@/lib/supabase/cache";
 
 type LlmScale = {
   label: string;
@@ -9,6 +10,7 @@ type LlmScale = {
 
 const OPENAI_MODEL = process.env.OPENAI_MODEL ?? "gpt-4o-mini";
 const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+const LOG_TIMINGS = process.env.LOG_TIMINGS === "1";
 
 function safeParse(content: string): LlmScale | null {
   try {
@@ -131,23 +133,87 @@ async function callLlm(scaleText: string) {
 }
 
 export async function POST(req: NextRequest) {
+  const t0 = Date.now();
   const { scale } = (await req.json()) as { scale?: string };
   if (!scale || typeof scale !== "string") {
     return NextResponse.json({ error: "Scale is required" }, { status: 400 });
   }
+  const normalizedScale = normalizePromptInput(scale);
+
+  // Cross-user cache (Supabase) keyed by (schema version, model, input)
+  const cachePrompt = makeCachePrompt("scale", OPENAI_MODEL, normalizedScale);
+  const tCacheGet0 = Date.now();
+  const cached = await cacheGet(cachePrompt);
+  const cacheGetMs = Date.now() - tCacheGet0;
+  if (cached && typeof cached === "object") {
+    if (LOG_TIMINGS) {
+      console.info("[timing] api/scale", { cache: "HIT", cacheGetMs, totalMs: Date.now() - t0 });
+    }
+    return NextResponse.json(cached, { headers: { "x-cache": "HIT", "x-cache-key": cachePrompt } });
+  }
 
   let parsed: Awaited<ReturnType<typeof callLlm>> | null = null;
   try {
-    parsed = await callLlm(scale);
+    const tLlm0 = Date.now();
+    parsed = await callLlm(normalizedScale);
+    if (LOG_TIMINGS) {
+      console.info("[timing] api/scale", {
+        cache: "MISS",
+        cacheGetMs,
+        openaiMs: Date.now() - tLlm0,
+      });
+    }
   } catch (error) {
     console.error("LLM error", error);
   }
 
   if (!parsed) {
+    if (LOG_TIMINGS) {
+      console.info("[timing] api/scale", {
+        cache: "MISS",
+        cacheGetMs,
+        totalMs: Date.now() - t0,
+        result: "no-parse",
+      });
+    }
     return NextResponse.json({ error: "Unable to parse scale" }, { status: 422 });
   }
 
-  return NextResponse.json(parsed);
+  const tCacheSet0 = Date.now();
+  const write = await cacheSet(cachePrompt, parsed);
+  const cacheSetMs = Date.now() - tCacheSet0;
+  if (!write.ok) {
+    console.warn("[cache] scale write failed:", write.error);
+    if (LOG_TIMINGS) {
+      console.info("[timing] api/scale", {
+        cache: "MISS",
+        cacheGetMs,
+        cacheSetMs,
+        cacheWrite: "ERR",
+        totalMs: Date.now() - t0,
+      });
+    }
+    return NextResponse.json(parsed, {
+      headers: {
+        "x-cache": "MISS",
+        "x-cache-key": cachePrompt,
+        "x-cache-write": "ERR",
+        "x-cache-write-error": write.error,
+      },
+    });
+  }
+  if (LOG_TIMINGS) {
+    console.info("[timing] api/scale", {
+      cache: "MISS",
+      cacheGetMs,
+      cacheSetMs,
+      cacheWrite: "OK",
+      totalMs: Date.now() - t0,
+    });
+  }
+  return NextResponse.json(parsed, {
+    headers: { "x-cache": "MISS", "x-cache-key": cachePrompt, "x-cache-write": "OK" },
+  });
 }
 
 
