@@ -19,7 +19,7 @@ const FOURTHS_BASE: number[] = [40, 45, 50, 55, 60, 65]; // E2 A2 D3 G3 C4 F4
 // For 4/5 string selections we treat this as "bass-like" by default:
 // low string should be E (per user feedback).
 const BASS_4_BASE: number[] = [28, 33, 38, 43]; // E1 A1 D2 G2
-const BASS_5_BASE: number[] = [28, 33, 38, 43, 48]; // E1 A1 D2 G2 C3
+const BASS_5_BASE: number[] = [23, 28, 33, 38, 43]; // B0 E1 A1 D2 G2
 
 function expandLowStrings(base: number[], stringCount: number): number[] {
   if (stringCount <= base.length) {

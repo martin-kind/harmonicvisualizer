@@ -9,6 +9,36 @@ export type KeySignature = {
   scale: PitchClass[];
 };
 
+const MAJOR_KEY_NAME: Record<PitchClass, string> = {
+  0: "C",
+  1: "Db",
+  2: "D",
+  3: "Eb",
+  4: "E",
+  5: "F",
+  6: "F#",
+  7: "G",
+  8: "Ab",
+  9: "A",
+  10: "Bb",
+  11: "B",
+};
+
+const MINOR_KEY_NAME: Record<PitchClass, string> = {
+  0: "C",
+  1: "C#",
+  2: "D",
+  3: "Eb",
+  4: "E",
+  5: "F",
+  6: "F#",
+  7: "G",
+  8: "G#",
+  9: "A",
+  10: "Bb",
+  11: "B",
+};
+
 const MAJOR_INTERVALS: PitchClass[] = [0, 2, 4, 5, 7, 9, 11];
 const MINOR_INTERVALS: PitchClass[] = [0, 2, 3, 5, 7, 8, 10];
 
@@ -18,9 +48,13 @@ function buildScale(root: PitchClass, mode: Mode): PitchClass[] {
 }
 
 export function keySetFromRoot(root: PitchClass, mode: Mode): KeySignature {
+  const displayName =
+    mode === "major"
+      ? MAJOR_KEY_NAME[root] ?? pitchClassToName(root)
+      : MINOR_KEY_NAME[root] ?? pitchClassToName(root);
   return {
     root,
-    label: `${pitchClassToName(root)} ${mode}`,
+    label: `${displayName} ${mode}`,
     mode,
     scale: buildScale(root, mode),
   };

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ALL_KEYS, KeySignature } from "@/lib/music/keys";
 import { TuningPreset, buildTuning } from "@/lib/music/tunings";
 import { buildFretboardHarmonics, EnrichedHarmonic } from "@/lib/music/fretboard";
@@ -14,7 +14,7 @@ type UiChord = {
 };
 
 const tuningPresetOptions: { id: TuningPreset; label: string; description: string }[] = [
-  { id: "standard", label: "Standard", description: "EADGBE (extended for 7/8)" },
+  { id: "standard", label: "Standard", description: "EADGBE" },
   { id: "fourths", label: "All fourths", description: "EADGCF..." },
   { id: "custom", label: "Custom", description: "Enter note per string" },
 ];
@@ -25,14 +25,27 @@ export default function Home() {
   const [stringCount, setStringCount] = useState(6);
   const [preset, setPreset] = useState<TuningPreset>("standard");
   const [customInputs, setCustomInputs] = useState<string[]>(Array(8).fill(""));
-  const [selectedKeyLabel, setSelectedKeyLabel] = useState<string | null>("C major");
+  const [selectedKeyLabel, setSelectedKeyLabel] = useState<string | null>(null);
   const [showOnlyKey, setShowOnlyKey] = useState(false);
+  const [showOnlyChordTones, setShowOnlyChordTones] = useState(false);
   const [chordText, setChordText] = useState("");
   const [chord, setChord] = useState<UiChord>({ data: null, source: "none" });
+  const hasAutoEnabledInKey = useRef(false);
 
   const selectedKey: KeySignature | null = useMemo(() => {
     if (!selectedKeyLabel) return null;
     return ALL_KEYS.find((k) => k.label === selectedKeyLabel) ?? null;
+  }, [selectedKeyLabel]);
+
+  useEffect(() => {
+    if (!selectedKeyLabel) {
+      hasAutoEnabledInKey.current = false;
+      return;
+    }
+    if (!hasAutoEnabledInKey.current) {
+      setShowOnlyKey(true);
+      hasAutoEnabledInKey.current = true;
+    }
   }, [selectedKeyLabel]);
 
   const tuningResult = useMemo(
@@ -195,8 +208,9 @@ export default function Home() {
                 type="checkbox"
                 checked={showOnlyKey}
                 onChange={(e) => setShowOnlyKey(e.target.checked)}
+                disabled={!selectedKey}
               />
-              Show only in-key (chord tones always show)
+              Show only in-key 
             </label>
 
             <div className="space-y-2">
@@ -229,6 +243,16 @@ export default function Home() {
                   {chord.data.source})
                 </div>
               )}
+
+              <label className="flex items-center gap-2 pt-1 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={showOnlyChordTones}
+                  onChange={(e) => setShowOnlyChordTones(e.target.checked)}
+                  disabled={!chord.data}
+                />
+                Show only chord tones
+              </label>
             </div>
 
             <Legend />
@@ -241,6 +265,7 @@ export default function Home() {
             harmonics={harmonics}
             fretMarkers={fretMarkers}
             showOnlyKey={showOnlyKey}
+            showOnlyChordTones={showOnlyChordTones}
             keyLabel={selectedKey?.label}
             chord={chord.data}
           />
@@ -274,6 +299,7 @@ type FretboardProps = {
   harmonics: EnrichedHarmonic[];
   fretMarkers: number[];
   showOnlyKey: boolean;
+  showOnlyChordTones: boolean;
   keyLabel?: string;
   chord?: ParsedChord | null;
 };
@@ -283,13 +309,15 @@ function Fretboard({
   harmonics,
   fretMarkers,
   showOnlyKey,
+  showOnlyChordTones,
   keyLabel,
   chord,
 }: FretboardProps) {
   const visible = useMemo(() => {
+    if (showOnlyChordTones) return harmonics.filter((h) => h.inChord);
     if (!showOnlyKey) return harmonics;
     return harmonics.filter((h) => h.isInKey || h.inChord);
-  }, [harmonics, showOnlyKey]);
+  }, [harmonics, showOnlyChordTones, showOnlyKey]);
 
   const FRET_COUNT = 24;
   const BOARD_WIDTH_PX = 1200;
@@ -303,6 +331,12 @@ function Fretboard({
     const denom = 1 - Math.pow(2, -FRET_COUNT / 12);
     const pos = 1 - Math.pow(2, -fret / 12);
     return (pos / denom) * 100;
+  }
+
+  function pct(value: number) {
+    // React server rendering may round style attribute serialization; keep our client-side
+    // values deterministic to avoid hydration warnings.
+    return `${value.toFixed(4)}%`;
   }
 
   const displayStrings = useMemo(() => [...strings].reverse(), [strings]);
@@ -338,8 +372,8 @@ function Fretboard({
             <div
               className="relative"
               style={{
-                width: BOARD_WIDTH_PX,
-                height: totalHeight,
+                width: `${BOARD_WIDTH_PX}px`,
+                height: `${totalHeight}px`,
                 background: "linear-gradient(180deg, rgba(180,83,9,0.12), rgba(2,6,23,0.02))",
               }}
             >
@@ -348,7 +382,7 @@ function Fretboard({
                 const left = fretToXPercent(fret);
                 const isNut = fret === 0;
                 return (
-                  <div key={`fret-${fret}`} className="absolute top-0 h-full" style={{ left: `${left}%` }}>
+                  <div key={`fret-${fret}`} className="absolute top-0 h-full" style={{ left: pct(left) }}>
                     <div className={`h-full ${isNut ? "w-[4px] bg-slate-600/70" : "w-px bg-slate-300"}`} />
                   </div>
                 );
@@ -364,7 +398,7 @@ function Fretboard({
                   <div
                     key={`inlay-${fretNumber}`}
                     className="absolute"
-                    style={{ left: `${left}%`, top: centerY }}
+                    style={{ left: pct(left), top: `${centerY}px` }}
                   >
                     <div className="absolute left-1/2 -translate-x-1/2">
                       {!isDouble ? (
@@ -373,11 +407,11 @@ function Fretboard({
                         <>
                           <span
                             className="absolute left-1/2 h-3.5 w-3.5 -translate-x-1/2 rounded-full bg-slate-400/70 shadow-sm ring-1 ring-slate-500/30"
-                            style={{ top: -dy }}
+                            style={{ top: `${-dy}px` }}
                           />
                           <span
                             className="absolute left-1/2 h-3.5 w-3.5 -translate-x-1/2 rounded-full bg-slate-400/70 shadow-sm ring-1 ring-slate-500/30"
-                            style={{ top: dy }}
+                            style={{ top: `${dy}px` }}
                           />
                         </>
                       )}
@@ -394,7 +428,7 @@ function Fretboard({
                   <div
                     key={`string-${displayIdx}`}
                     className="absolute left-0 w-full bg-slate-700/70"
-                    style={{ top: y, height: thickness, transform: "translateY(-50%)" }}
+                    style={{ top: `${y}px`, height: `${thickness}px`, transform: "translateY(-50%)" }}
                   />
                 );
               })}
@@ -407,7 +441,11 @@ function Fretboard({
                   <div
                     key={`${h.stringIndex}-${h.fret}-${h.label}`}
                     className="absolute"
-                    style={{ left: `${fretToXPercent(h.fret)}%`, top: y, transform: "translate(-50%, -50%)" }}
+                    style={{
+                      left: pct(fretToXPercent(h.fret)),
+                      top: `${y}px`,
+                      transform: "translate(-50%, -50%)",
+                    }}
                   >
                     <span
                       className={`flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold text-white shadow ${
@@ -432,11 +470,11 @@ function Fretboard({
           {/* Fret number row */}
           <div className="flex border-t border-slate-200 bg-white/60 text-[10px] text-slate-600">
             <div className="sticky left-0 z-20 w-28 border-r border-slate-200 bg-white/90 backdrop-blur" />
-            <div className="relative" style={{ width: BOARD_WIDTH_PX, height: 26 }}>
+            <div className="relative" style={{ width: `${BOARD_WIDTH_PX}px`, height: "26px" }}>
               {fretMarkers.map((fret) => {
                 const left = fretToXPercent(fret);
                 return (
-                  <div key={`label-${fret}`} className="absolute" style={{ left: `${left}%` }}>
+                  <div key={`label-${fret}`} className="absolute" style={{ left: pct(left) }}>
                     <div className="absolute left-1/2 top-0 h-2 w-px -translate-x-1/2 bg-slate-300" />
                     <div className="absolute left-1/2 top-2 -translate-x-1/2">{fret}</div>
                   </div>

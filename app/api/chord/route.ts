@@ -94,25 +94,23 @@ export async function POST(req: NextRequest) {
   }
 
   const local = parseChordLocally(chord);
-  let parsed: ParsedChord | null = null;
+  let llm: ParsedChord | null = null;
 
   try {
-    parsed = await callLlm(chord);
+    llm = await callLlm(chord);
   } catch (error) {
     console.error("LLM error", error);
   }
 
-  if (!parsed && local) {
-    parsed = local;
+  if (llm) {
+    // Ensure the response always includes a stable `source` field.
+    return NextResponse.json({ ...llm, source: "llm" } satisfies ParsedChord);
   }
 
-  if (!parsed) {
-    return NextResponse.json(
-      { error: "Unable to parse chord", fallback: !!local },
-      { status: 422 },
-    );
+  if (local) {
+    return NextResponse.json({ ...local, source: "local" } satisfies ParsedChord);
   }
 
-  return NextResponse.json(parsed);
+  return NextResponse.json({ error: "Unable to parse chord", fallback: false }, { status: 422 });
 }
 
